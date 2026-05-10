@@ -480,8 +480,24 @@ The workflow at `.github/workflows/ci.yml`:
 - Runs on every push to `main` and on PRs.
 - Spins up a Postgres service container.
 - Runs `alembic upgrade head` then `pytest`.
-- On push to `main` (after tests pass): deploys via `railway up`.
-- Requires `RAILWAY_TOKEN` secret set in GitHub repository settings.
+- On push to `main` (after tests pass): deploys via `railway up` **if** `RAILWAY_TOKEN` is configured. If the secret is absent the deploy step is skipped gracefully — CI still turns green.
+
+#### Getting a Railway token
+
+1. Open [railway.app](https://railway.app) and log in.
+2. Click your avatar (top-right) → **Account Settings**.
+3. Go to the **Tokens** tab → **Create Token**.
+4. Give it a name (e.g. `github-actions`) and click **Create**. Copy the value — it is shown only once.
+
+#### Adding the token to GitHub
+
+1. Open your GitHub repository.
+2. Go to **Settings → Secrets and variables → Actions**.
+3. Click **New repository secret**.
+4. Name: `RAILWAY_TOKEN`, Value: paste the token from above.
+5. Click **Add secret**.
+
+After saving, the next push to `main` will trigger a real deployment.
 
 ---
 
