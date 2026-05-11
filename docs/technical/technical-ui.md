@@ -71,7 +71,7 @@ Add this as a CI step to keep types in sync automatically.
 | `/properties/new` | **New property** | Form: name, address, purchase date, purchase price, currency, status. |
 | `/properties/:id` | **Property detail** | Edit property fields. Nested list of transactions (income / expense). Add / edit / delete transactions inline. Summary card: total invested, cumulative income, profit. |
 | `/import-export` | **Import / Export** | Export button → downloads ZIP with four CSVs (`deposits.csv`, `subscriptions.csv`, `properties.csv`, `property_transactions.csv`). Import dropzone accepts ZIP or single CSV. Shows import result: created / skipped counts per entity type. |
-| `/settings` | **Settings** | Default currency selector. Module toggles: Deposits, Subscriptions, Property — enable/disable sections app-wide. |
+| `/settings` | **Settings** | Default currency selector. Module toggles: Deposits, Subscriptions, Property. Demo data: load sample records or delete all data. |
 
 ---
 
@@ -116,6 +116,6 @@ Analytics fields for disabled modules are returned as `null` by the API — rend
 - [ ] Subscriptions list + new + edit pages
 - [ ] Properties list + new + edit/detail pages (with nested transactions)
 - [ ] Import / Export page (ZIP with 4 CSVs)
-- [ ] Settings page (password change + module toggles)
+- [ ] Settings page (module toggles + default currency + demo data load/delete)
 - [ ] CI: GitHub Actions → Vercel deploy on push to `main`
 - [ ] CI step: regenerate `src/api/types.ts` from live OpenAPI spec

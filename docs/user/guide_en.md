@@ -96,6 +96,29 @@ A disabled module:
 
 `default_currency` — ISO currency code: `USD`, `EUR`, `RUB`, `GEL`, `BYN`. Used as the pre-selected value when creating deposits, subscriptions, properties, and in analytics.
 
+### Demo data
+
+To quickly explore the app, load sample data:
+
+```
+POST /settings/demo-data
+```
+
+Creates:
+- 3 deposits (RUB simple/compound + USD)
+- 6 subscriptions (Netflix, Spotify, Yandex Plus, iCloud, gym, Adobe CC)
+- 1 property with transactions (rent income, management fee, renovation, furniture)
+
+All dates are calculated relative to today — the data always looks current.
+
+To delete all your data:
+
+```
+DELETE /settings/data
+```
+
+Deletes all deposits, subscriptions, and properties. Settings (modules, currency) are preserved.
+
 ---
 
 ## Deposits
