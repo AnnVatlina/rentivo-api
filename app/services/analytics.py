@@ -2,34 +2,26 @@ from datetime import date
 from decimal import Decimal
 
 from app.models.deposit import Deposit
+from app.models.property import Property
+from app.models.property_transaction import PropertyTransaction
 from app.models.subscription import Subscription
+from app.models.user_settings import UserSettings
 from app.schemas.analytics import AnalyticsResponse, MonthlyBreakdown
 from app.services import deposit as deposit_svc
 from app.services import subscription as sub_svc
+from app.services import property as prop_svc
 
 
 def _deposit_income_for_month(dep: Deposit, year: int, month: int) -> Decimal:
     month_start = date(year, month, 1)
-    if month < 12:
-        month_end = date(year, month + 1, 1)
-    else:
-        month_end = date(year + 1, 1, 1)
+    month_end = date(year, month + 1, 1) if month < 12 else date(year + 1, 1, 1)
 
     if dep.open_date >= month_end:
         return Decimal("0")
     if dep.close_date and dep.close_date <= month_start:
         return Decimal("0")
 
-    end_of_period = min(month_end, dep.close_date) if dep.close_date else month_end
-    start_of_period = max(month_start, dep.open_date)
-
-    income_to_end = dep.amount * (dep.annual_rate / Decimal("100")) * (
-        Decimal((end_of_period - dep.open_date).days) / Decimal("365")
-    )
-    income_to_start = dep.amount * (dep.annual_rate / Decimal("100")) * (
-        Decimal(max((start_of_period - dep.open_date).days, 0)) / Decimal("365")
-    )
-    return income_to_end - income_to_start
+    return deposit_svc.income_to_date(dep, today=month_end) - deposit_svc.income_to_date(dep, today=month_start)
 
 
 def _subscription_cost_for_month(sub: Subscription, year: int, month: int) -> Decimal:
@@ -57,33 +49,67 @@ def _subscription_cost_for_month(sub: Subscription, year: int, month: int) -> De
 def build_analytics(
     deposits: list[Deposit],
     subscriptions: list[Subscription],
+    properties: list[Property],
+    property_transactions: list[PropertyTransaction],
+    settings: UserSettings | None,
     year: int,
     currency: str,
 ) -> AnalyticsResponse:
     today = date.today()
-    months = []
+    deposits_on = settings is None or settings.module_deposits
+    subs_on = settings is None or settings.module_subscriptions
+    prop_on = settings is None or settings.module_property
 
+    months = []
     for month in range(1, 13):
         is_projected = date(year, month, 1) > today
 
-        dep_income = sum(
-            (_deposit_income_for_month(d, year, month) for d in deposits if d.currency == currency),
-            Decimal("0"),
-        )
-        sub_expenses = sum(
-            (_subscription_cost_for_month(s, year, month) for s in subscriptions if s.currency == currency),
-            Decimal("0"),
-        )
+        dep_income: Decimal | None = None
+        if deposits_on:
+            dep_income = round(sum(
+                (_deposit_income_for_month(d, year, month) for d in deposits if d.currency == currency),
+                Decimal("0"),
+            ), 2)
 
-        months.append(
-            MonthlyBreakdown(
-                month=month,
-                year=year,
-                deposit_income=round(dep_income, 2),
-                subscription_expenses=round(sub_expenses, 2),
-                net=round(dep_income - sub_expenses, 2),
-                is_projected=is_projected,
-            )
-        )
+        sub_expenses: Decimal | None = None
+        if subs_on:
+            sub_expenses = round(sum(
+                (_subscription_cost_for_month(s, year, month) for s in subscriptions if s.currency == currency),
+                Decimal("0"),
+            ), 2)
+
+        prop_income: Decimal | None = None
+        prop_expenses: Decimal | None = None
+        if prop_on:
+            prop_income = Decimal("0")
+            prop_expenses = Decimal("0")
+            for prop in properties:
+                txs = [t for t in property_transactions if t.property_id == prop.id]
+                cf = prop_svc.monthly_cashflow(txs, year, month, currency)
+                prop_income += cf["income"]
+                prop_expenses += cf["expenses"]
+            prop_income = round(prop_income, 2)
+            prop_expenses = round(prop_expenses, 2)
+
+        net = Decimal("0")
+        if dep_income is not None:
+            net += dep_income
+        if sub_expenses is not None:
+            net -= sub_expenses
+        if prop_income is not None:
+            net += prop_income
+        if prop_expenses is not None:
+            net -= prop_expenses
+
+        months.append(MonthlyBreakdown(
+            month=month,
+            year=year,
+            deposit_income=dep_income,
+            subscription_expenses=sub_expenses,
+            property_income=prop_income,
+            property_expenses=prop_expenses,
+            net=round(net, 2),
+            is_projected=is_projected,
+        ))
 
     return AnalyticsResponse(year=year, currency=currency, months=months)

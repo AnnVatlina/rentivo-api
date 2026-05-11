@@ -1,12 +1,14 @@
 from fastapi import FastAPI
 
-from app.routers import analytics, auth, deposits, export_import, subscriptions
+from app.routers import analytics, auth, deposits, export_import, properties, settings, subscriptions
 
-app = FastAPI(title="Rentivo API", version="1.0.0")
+app = FastAPI(title="Rentivo API", version="2.0.0")
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(settings.router, prefix="/settings", tags=["settings"])
 app.include_router(deposits.router, prefix="/deposits", tags=["deposits"])
 app.include_router(subscriptions.router, prefix="/subscriptions", tags=["subscriptions"])
+app.include_router(properties.router, prefix="/properties", tags=["properties"])
 app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 app.include_router(export_import.router, tags=["export/import"])
 

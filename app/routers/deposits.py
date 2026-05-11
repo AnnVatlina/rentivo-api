@@ -4,14 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_module
 from app.database import get_db
 from app.models.deposit import Deposit
 from app.models.user import User
 from app.schemas.deposit import DepositCreate, DepositOut, DepositUpdate
 from app.services import deposit as svc
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_module("deposits"))])
 
 
 def _enrich(deposit: Deposit) -> DepositOut:

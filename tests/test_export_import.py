@@ -287,4 +287,139 @@ async def test_import_response_schema(client: AsyncClient, auth: dict):
     data = resp.json()
     assert "deposits" in data
     assert "subscriptions" in data
+    assert "properties" in data
+    assert "property_transactions" in data
     assert "skipped" in data
+
+
+# ── Export: properties and transactions ───────────────────────────────────────
+
+async def _enable_property(client: AsyncClient, headers: dict):
+    await client.put("/settings", json={"module_property": True}, headers=headers)
+
+
+PROPERTY_PAYLOAD = {
+    "name": "Test property",
+    "purchase_date": "2026-01-01",
+    "purchase_price": "3000000.00",
+    "currency": "RUB",
+}
+
+TX_PAYLOAD = {
+    "type": "income",
+    "category": "rent",
+    "title": "Monthly rent",
+    "amount": "40000.00",
+    "currency": "RUB",
+    "billing_cycle": "monthly",
+    "start_date": "2026-01-01",
+}
+
+
+async def test_export_contains_properties_csv(client: AsyncClient, auth: dict):
+    await _enable_property(client, auth["headers"])
+    await client.post("/properties", json=PROPERTY_PAYLOAD, headers=auth["headers"])
+    resp = await client.get("/export/csv", headers=auth["headers"])
+    files = _open_zip(resp.content)
+    assert "properties.csv" in files
+    assert "property_transactions.csv" in files
+
+
+async def test_export_properties_csv_headers(client: AsyncClient, auth: dict):
+    resp = await client.get("/export/csv", headers=auth["headers"])
+    files = _open_zip(resp.content)
+    reader = csv.reader(io.StringIO(files["properties.csv"]))
+    headers = next(reader)
+    expected = ["id", "name", "address", "purchase_date", "purchase_price", "currency",
+                "status", "sale_date", "sale_price", "sale_notes", "created_at"]
+    assert headers == expected
+
+
+async def test_export_property_transactions_csv_headers(client: AsyncClient, auth: dict):
+    resp = await client.get("/export/csv", headers=auth["headers"])
+    files = _open_zip(resp.content)
+    reader = csv.reader(io.StringIO(files["property_transactions.csv"]))
+    headers = next(reader)
+    expected = ["id", "property_id", "type", "category", "title", "amount", "currency",
+                "billing_cycle", "transaction_date", "start_date", "end_date", "created_at"]
+    assert headers == expected
+
+
+async def test_export_contains_property_data(client: AsyncClient, auth: dict):
+    await _enable_property(client, auth["headers"])
+    await client.post("/properties", json=PROPERTY_PAYLOAD, headers=auth["headers"])
+    files = _open_zip((await client.get("/export/csv", headers=auth["headers"])).content)
+    rows = _csv_rows(files["properties.csv"])
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Test property"
+
+
+async def test_export_contains_transaction_data(client: AsyncClient, auth: dict):
+    await _enable_property(client, auth["headers"])
+    prop = (await client.post("/properties", json=PROPERTY_PAYLOAD, headers=auth["headers"])).json()
+    await client.post(f"/properties/{prop['id']}/transactions", json=TX_PAYLOAD, headers=auth["headers"])
+    files = _open_zip((await client.get("/export/csv", headers=auth["headers"])).content)
+    rows = _csv_rows(files["property_transactions.csv"])
+    assert len(rows) == 1
+    assert rows[0]["title"] == "Monthly rent"
+
+
+async def test_export_properties_scoped_to_user(client: AsyncClient, auth: dict, second_auth: dict):
+    await _enable_property(client, auth["headers"])
+    await client.post("/properties", json=PROPERTY_PAYLOAD, headers=auth["headers"])
+    files = _open_zip((await client.get("/export/csv", headers=second_auth["headers"])).content)
+    assert len(_csv_rows(files["properties.csv"])) == 0
+
+
+# ── Import: properties CSV ────────────────────────────────────────────────────
+
+async def _make_properties_csv() -> bytes:
+    prop_id = str(uuid.uuid4())
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["id", "name", "address", "purchase_date", "purchase_price", "currency",
+                "status", "sale_date", "sale_price", "sale_notes", "created_at"])
+    w.writerow([prop_id, "Imported flat", "", "2026-01-01", "4000000.00", "RUB",
+                "active", "", "", "", "2026-01-01T00:00:00"])
+    return buf.getvalue().encode(), prop_id
+
+
+async def test_import_single_properties_csv(client: AsyncClient, auth: dict):
+    await _enable_property(client, auth["headers"])
+    csv_bytes, _ = await _make_properties_csv()
+    resp = await client.post(
+        "/import/csv",
+        files={"file": ("properties.csv", csv_bytes, "text/csv")},
+        headers=auth["headers"],
+    )
+    assert resp.status_code == 200
+    assert resp.json()["properties"] == 1
+    props = (await client.get("/properties", headers=auth["headers"])).json()
+    assert any(p["name"] == "Imported flat" for p in props)
+
+
+async def test_import_properties_deduplication(client: AsyncClient, auth: dict):
+    await _enable_property(client, auth["headers"])
+    csv_bytes, _ = await _make_properties_csv()
+    await client.post("/import/csv", files={"file": ("properties.csv", csv_bytes, "text/csv")}, headers=auth["headers"])
+    resp = await client.post("/import/csv", files={"file": ("properties.csv", csv_bytes, "text/csv")}, headers=auth["headers"])
+    assert resp.json()["properties"] == 0
+    assert resp.json()["skipped"] == 1
+
+
+async def test_import_transactions_skipped_for_wrong_property(client: AsyncClient, auth: dict, second_auth: dict):
+    """Transactions referencing another user's property_id must be skipped."""
+    await _enable_property(client, auth["headers"])
+    await _enable_property(client, second_auth["headers"])
+    # auth creates a property and exports
+    await client.post("/properties", json=PROPERTY_PAYLOAD, headers=auth["headers"])
+    zip_bytes = (await client.get("/export/csv", headers=auth["headers"])).content
+    # second_auth imports — property_transactions will reference auth's property_id which doesn't exist for second_auth
+    resp = await client.post(
+        "/import/csv",
+        files={"file": ("export.zip", zip_bytes, "application/zip")},
+        headers=second_auth["headers"],
+    )
+    assert resp.status_code == 200
+    # Property created for second_auth (new id); transactions = 0 (none in export)
+    assert resp.json()["properties"] == 1

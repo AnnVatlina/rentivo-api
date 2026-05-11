@@ -248,3 +248,59 @@ async def test_delete_nonexistent_is_404(client: AsyncClient, auth: dict):
 async def test_delete_other_users_deposit_is_404(client: AsyncClient, auth: dict, second_auth: dict):
     dep = await _create(client, auth["headers"])
     assert (await client.delete(f"/deposits/{dep['id']}", headers=second_auth["headers"])).status_code == 404
+
+
+# ── Compound interest ─────────────────────────────────────────────────────────
+
+COMPOUND_PAYLOAD = {
+    "title": "Compound dep",
+    "amount": "100000.00",
+    "currency": "RUB",
+    "open_date": "2020-01-01",
+    "annual_rate": "10.0",
+    "interest_type": "compound",
+    "compound_frequency": "monthly",
+}
+
+
+async def test_create_compound_deposit_returns_201(client: AsyncClient, auth: dict):
+    resp = await client.post("/deposits", json=COMPOUND_PAYLOAD, headers=auth["headers"])
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["interest_type"] == "compound"
+    assert data["compound_frequency"] == "monthly"
+
+
+async def test_compound_income_greater_than_simple(client: AsyncClient, auth: dict):
+    """Compound income must be strictly greater than simple for same rate and period."""
+    simple = (await client.post("/deposits", json={
+        **COMPOUND_PAYLOAD, "interest_type": "simple", "compound_frequency": None,
+    }, headers=auth["headers"])).json()
+    compound = (await client.post("/deposits", json=COMPOUND_PAYLOAD, headers=auth["headers"])).json()
+    assert Decimal(compound["income_to_date"]) > Decimal(simple["income_to_date"])
+
+
+async def test_compound_missing_frequency_is_422(client: AsyncClient, auth: dict):
+    payload = {**COMPOUND_PAYLOAD, "compound_frequency": None}
+    assert (await client.post("/deposits", json=payload, headers=auth["headers"])).status_code == 422
+
+
+async def test_simple_with_frequency_is_422(client: AsyncClient, auth: dict):
+    payload = {**DEPOSIT_FULL, "interest_type": "simple", "compound_frequency": "monthly"}
+    assert (await client.post("/deposits", json=payload, headers=auth["headers"])).status_code == 422
+
+
+async def test_invalid_interest_type_is_422(client: AsyncClient, auth: dict):
+    payload = {**DEPOSIT_FULL, "interest_type": "magic"}
+    assert (await client.post("/deposits", json=payload, headers=auth["headers"])).status_code == 422
+
+
+async def test_invalid_compound_frequency_is_422(client: AsyncClient, auth: dict):
+    payload = {**COMPOUND_PAYLOAD, "compound_frequency": "biweekly"}
+    assert (await client.post("/deposits", json=payload, headers=auth["headers"])).status_code == 422
+
+
+async def test_default_interest_type_is_simple(client: AsyncClient, auth: dict):
+    data = await _create(client, auth["headers"], DEPOSIT_MINIMAL)
+    assert data["interest_type"] == "simple"
+    assert data["compound_frequency"] is None

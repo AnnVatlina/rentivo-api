@@ -11,6 +11,7 @@ from app.auth.jwt import (
 )
 from app.database import get_db
 from app.models.user import User
+from app.models.user_settings import UserSettings
 from app.schemas.user import RefreshRequest, TokenPair, UserCreate
 
 router = APIRouter()
@@ -24,6 +25,8 @@ async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
 
     user = User(email=body.email, hashed_password=hash_password(body.password))
     db.add(user)
+    await db.flush()  # get user.id before settings insert
+    db.add(UserSettings(user_id=user.id))
     await db.commit()
     await db.refresh(user)
 

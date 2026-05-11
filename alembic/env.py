@@ -16,6 +16,9 @@ from app.database import Base  # noqa: E402
 import app.models.user  # noqa: F401, E402
 import app.models.deposit  # noqa: F401, E402
 import app.models.subscription  # noqa: F401, E402
+import app.models.user_settings  # noqa: F401, E402
+import app.models.property  # noqa: F401, E402
+import app.models.property_transaction  # noqa: F401, E402
 
 target_metadata = Base.metadata
 

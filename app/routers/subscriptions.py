@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_module
 from app.database import get_db
 from app.models.subscription import Subscription
 from app.models.user import User
@@ -16,7 +16,7 @@ from app.schemas.subscription import (
 )
 from app.services import subscription as svc
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_module("subscriptions"))])
 
 
 def _enrich(sub: Subscription) -> SubscriptionOut:

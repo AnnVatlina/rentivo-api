@@ -65,6 +65,52 @@ async def test_empty_data_all_zeros(client: AsyncClient, auth: dict):
         assert _dec(m["net"]) == 0
 
 
+async def test_response_has_property_fields(client: AsyncClient, auth: dict):
+    resp = await client.get("/analytics?year=2026&currency=RUB", headers=auth["headers"])
+    m = resp.json()["months"][0]
+    assert "property_income" in m
+    assert "property_expenses" in m
+
+
+async def test_property_fields_null_when_module_disabled(client: AsyncClient, auth: dict):
+    # module_property defaults to False
+    resp = await client.get("/analytics?year=2026&currency=RUB", headers=auth["headers"])
+    for m in resp.json()["months"]:
+        assert m["property_income"] is None
+        assert m["property_expenses"] is None
+
+
+async def test_deposits_null_when_module_disabled(client: AsyncClient, auth: dict):
+    await client.put("/settings", json={"module_deposits": False}, headers=auth["headers"])
+    resp = await client.get("/analytics?year=2026&currency=RUB", headers=auth["headers"])
+    for m in resp.json()["months"]:
+        assert m["deposit_income"] is None
+
+
+async def test_subscriptions_null_when_module_disabled(client: AsyncClient, auth: dict):
+    await client.put("/settings", json={"module_subscriptions": False}, headers=auth["headers"])
+    resp = await client.get("/analytics?year=2026&currency=RUB", headers=auth["headers"])
+    for m in resp.json()["months"]:
+        assert m["subscription_expenses"] is None
+
+
+async def test_property_income_appears_when_module_enabled(client: AsyncClient, auth: dict):
+    await client.put("/settings", json={"module_property": True}, headers=auth["headers"])
+    # create property + monthly rent
+    prop = (await client.post("/properties", json={
+        "name": "Flat", "purchase_date": "2020-01-01",
+        "purchase_price": "3000000", "currency": "RUB",
+    }, headers=auth["headers"])).json()
+    await client.post(f"/properties/{prop['id']}/transactions", json={
+        "type": "income", "category": "rent", "title": "Rent",
+        "amount": "40000", "currency": "RUB",
+        "billing_cycle": "monthly", "start_date": "2020-01-01",
+    }, headers=auth["headers"])
+    resp = await client.get("/analytics?year=2020&currency=RUB", headers=auth["headers"])
+    months = {m["month"]: m for m in resp.json()["months"]}
+    assert _dec(months[1]["property_income"]) == _dec("40000")
+
+
 # ── Projected flag ────────────────────────────────────────────────────────────
 
 async def test_past_months_are_not_projected(client: AsyncClient, auth: dict):
