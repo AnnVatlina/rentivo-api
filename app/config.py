@@ -12,4 +12,11 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
 
 
-settings = Settings()
+def _make_settings() -> Settings:
+    s = Settings()
+    # Railway provides postgresql:// — normalize to asyncpg driver
+    if s.DATABASE_URL.startswith("postgresql://"):
+        object.__setattr__(s, "DATABASE_URL", s.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1))
+    return s
+
+settings = _make_settings()
