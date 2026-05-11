@@ -23,7 +23,7 @@ async def seed_demo_data(user_id: uuid.UUID, db: AsyncSession) -> dict:
             bank_name="Bank of America",
             amount=Decimal("15000.00"), currency="USD",
             open_date=today - relativedelta(months=10),
-            close_date=today + relativedelta(months=2),
+            close_date=today + relativedelta(days=12),
             annual_rate=Decimal("4.80"),
             interest_type="simple",
         ),
