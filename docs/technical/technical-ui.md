@@ -71,7 +71,7 @@ Add this as a CI step to keep types in sync automatically.
 | `/properties/new` | **New property** | Form: name, address, purchase date, purchase price, currency, status. |
 | `/properties/:id` | **Property detail** | Edit property fields. Nested list of transactions (income / expense). Add / edit / delete transactions inline. Summary card: total invested, cumulative income, profit. |
 | `/import-export` | **Import / Export** | Export button → downloads ZIP with four CSVs (`deposits.csv`, `subscriptions.csv`, `properties.csv`, `property_transactions.csv`). Import dropzone accepts ZIP or single CSV. Shows import result: created / skipped counts per entity type. |
-| `/settings` | **Settings** | Change password form. Module toggles: Deposits, Subscriptions, Property — enable/disable sections app-wide. |
+| `/settings` | **Settings** | Default currency selector. Module toggles: Deposits, Subscriptions, Property — enable/disable sections app-wide. |
 
 ---
 
@@ -85,12 +85,16 @@ Recurring transactions use `start_date` / `end_date` instead.
 
 ### Module System
 
-`GET /settings` returns `module_deposits`, `module_subscriptions`, `module_property` booleans. The UI should:
+`GET /settings` returns `module_deposits`, `module_subscriptions`, `module_property` booleans and `default_currency`. The UI should:
 1. Fetch settings on app load and store in context.
 2. Hide navigation items and pages for disabled modules.
 3. Show the `/settings` page even when a module is off (so the user can re-enable it).
 
 Analytics fields for disabled modules are returned as `null` by the API — render them as `—` rather than `0`.
+
+### Default Currency
+
+`default_currency` from settings is used as the pre-selected value in all currency dropdowns (deposits, subscriptions, properties forms) and as the default currency for the analytics page. Changing it in Settings takes effect immediately for all new forms opened in that session.
 
 ---
 

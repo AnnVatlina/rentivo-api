@@ -5,18 +5,18 @@
 Rentivo API is a stateless REST API built on **FastAPI** with an **async PostgreSQL** backend.
 
 ```
-Client (iOS / Web)
+Client (Web / iOS)
       │
       ▼
-FastAPI (uvicorn)        ← Railway service, horizontal-scalable
+FastAPI (uvicorn)        ← Railway service
       │
       ▼
-PostgreSQL               ← Railway managed database
+PostgreSQL               ← Railway Postgres plugin
 ```
 
 - All database I/O is non-blocking (SQLAlchemy 2.0 async + asyncpg driver).
 - Authentication is stateless JWT — no session storage required.
-- Business logic (income calculation, next payment date) lives in pure Python service functions — easily testable without a database.
+- Business logic lives in pure Python service functions (no DB calls) — easily testable.
 
 ---
 
@@ -25,50 +25,66 @@ PostgreSQL               ← Railway managed database
 ```
 rentivo-api/
 ├── app/
-│   ├── main.py               # FastAPI app factory, router mounts
-│   ├── config.py             # Pydantic-Settings, reads env vars
+│   ├── main.py               # FastAPI app, router mounts, CORS middleware
+│   ├── config.py             # Pydantic-Settings; normalizes postgresql:// → asyncpg
 │   ├── database.py           # Async engine, session factory, Base
 │   ├── models/
-│   │   ├── user.py           # User SQLAlchemy model
-│   │   ├── deposit.py        # Deposit SQLAlchemy model
-│   │   └── subscription.py   # Subscription SQLAlchemy model
+│   │   ├── user.py
+│   │   ├── deposit.py        # interest_type, compound_frequency, source_id
+│   │   ├── subscription.py   # source_id
+│   │   ├── user_settings.py  # module flags, default_currency
+│   │   ├── property.py       # source_id
+│   │   └── property_transaction.py  # transaction_date (not date)
 │   ├── schemas/
-│   │   ├── user.py           # UserCreate, UserOut, TokenPair
-│   │   ├── deposit.py        # DepositCreate/Update/Out, Currency enum
-│   │   ├── subscription.py   # SubscriptionCreate/Update/Out, BillingCycle
-│   │   └── analytics.py      # MonthlyBreakdown, AnalyticsResponse
+│   │   ├── user.py
+│   │   ├── deposit.py        # InterestType, CompoundFrequency enums
+│   │   ├── subscription.py
+│   │   ├── settings.py       # UserSettingsOut, UserSettingsUpdate
+│   │   ├── property.py
+│   │   ├── property_transaction.py
+│   │   └── analytics.py      # MonthlyBreakdown (nullable module fields)
 │   ├── routers/
 │   │   ├── auth.py           # POST /auth/register|login|refresh
+│   │   ├── settings.py       # GET/PUT /settings
 │   │   ├── deposits.py       # CRUD /deposits
 │   │   ├── subscriptions.py  # CRUD /subscriptions
+│   │   ├── properties.py     # CRUD /properties + nested transactions + analytics
 │   │   ├── analytics.py      # GET /analytics
 │   │   └── export_import.py  # GET /export/csv, POST /import/csv
 │   ├── services/
-│   │   ├── deposit.py        # income_to_date(), days_elapsed()
+│   │   ├── deposit.py        # income_to_date() — simple + compound
 │   │   ├── subscription.py   # monthly_cost(), next_payment_date()
+│   │   ├── property.py       # monthly_cashflow(), total_summary()
 │   │   └── analytics.py      # build_analytics()
 │   └── auth/
-│       ├── jwt.py            # Token creation/validation, password hashing
-│       └── dependencies.py   # get_current_user FastAPI dependency
+│       ├── jwt.py            # Token creation/validation, bcrypt password hashing
+│       └── dependencies.py   # get_current_user, require_module() factory
 ├── alembic/
-│   ├── env.py
-│   ├── script.py.mako
 │   └── versions/
-│       └── 0001_initial_schema.py
+│       ├── 0001_initial_schema.py
+│       ├── 0002_add_compound_interest.py
+│       ├── 0003_add_user_settings.py
+│       ├── 0004_add_properties_and_transactions.py
+│       ├── 0005_add_property_source_id.py
+│       └── 0006_add_default_currency_to_settings.py
 ├── tests/
-│   ├── conftest.py           # DB fixtures, test client
+│   ├── conftest.py
 │   ├── test_auth.py
 │   ├── test_deposits.py
 │   ├── test_subscriptions.py
+│   ├── test_settings.py
+│   ├── test_properties.py
 │   ├── test_analytics.py
 │   ├── test_export_import.py
-│   └── test_services.py      # Pure unit tests (no DB)
+│   └── test_services.py
 ├── docs/
-│   ├── technical/technical.md
+│   ├── technical/
+│   │   ├── technical.md      # this file
+│   │   └── technical-ui.md   # web UI spec
 │   └── user/
 │       ├── guide_ru.md
 │       └── guide_en.md
-├── docker-compose.yml        # Local dev: postgres + api
+├── docker-compose.yml
 ├── Dockerfile
 ├── railway.toml
 ├── alembic.ini
@@ -80,37 +96,26 @@ rentivo-api/
 
 ## Local Development Setup
 
-### Prerequisites
-- Docker + Docker Compose v2
-
-### Steps
-
 ```bash
-# 1. Clone and enter the repo
-git clone <repo-url>
+git clone https://github.com/AnnVatlina/rentivo-api
 cd rentivo-api
-
-# 2. Copy env file
 cp .env.example .env
-# Edit .env if needed (defaults work for docker-compose)
 
-# 3. Start services
 docker compose up --build
-
-# 4. Apply migrations (first time and after model changes)
-docker compose exec api alembic upgrade head
-
-# API is now available at http://localhost:8000
-# Docs at http://localhost:8000/docs
+# Migrations run automatically on startup (railway.toml startCommand)
+# API → http://localhost:8000
+# Docs → http://localhost:8000/docs
 ```
 
-To run tests locally with Docker postgres running:
+To run tests:
 
 ```bash
-pip install -r requirements.txt
-export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/rentivo
-alembic upgrade head
+# Create test DB once
+docker compose exec db psql -U postgres -c "CREATE DATABASE rentivo_test;"
+
 pytest
+# or with coverage
+pytest --cov=app --cov-report=term-missing
 ```
 
 ---
@@ -119,14 +124,13 @@ pytest
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `DATABASE_URL` | yes | — | SQLAlchemy async DSN, e.g. `postgresql+asyncpg://user:pass@host:5432/db` |
-| `SECRET_KEY` | yes | — | Long random string used to sign JWTs. Generate with `openssl rand -hex 32` |
-| `ALGORITHM` | no | `HS256` | JWT signing algorithm |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | no | `30` | Access token lifetime in minutes |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | no | `30` | Refresh token lifetime in days |
-| `APP_ENV` | no | `development` | `development` or `production` |
+| `DATABASE_URL` | yes | — | `postgresql+asyncpg://...` or `postgresql://...` (auto-normalized) |
+| `SECRET_KEY` | yes | — | JWT signing key. Generate: `openssl rand -hex 32` |
+| `ALGORITHM` | no | `HS256` | JWT algorithm |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | no | `30` | Access token lifetime |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | no | `30` | Refresh token lifetime |
 
-On Railway, set these in **Project → Variables**. `DATABASE_URL` is auto-provided by the Railway PostgreSQL plugin as `DATABASE_URL`.
+On Railway, set only `DATABASE_URL = ${{Postgres.DATABASE_URL}}` and `SECRET_KEY`. The code automatically replaces `postgresql://` with `postgresql+asyncpg://` at startup.
 
 ---
 
@@ -140,25 +144,41 @@ On Railway, set these in **Project → Variables**. `DATABASE_URL` is auto-provi
 | hashed_password | VARCHAR | NOT NULL |
 | created_at | TIMESTAMPTZ | NOT NULL, default now() |
 
+### user_settings
+| Column | Type | Constraints |
+|---|---|---|
+| id | UUID | PK |
+| user_id | UUID | FK → users.id CASCADE, UNIQUE, INDEX |
+| module_deposits | BOOLEAN | NOT NULL, default true |
+| module_subscriptions | BOOLEAN | NOT NULL, default true |
+| module_property | BOOLEAN | NOT NULL, default false |
+| default_currency | VARCHAR(3) | NOT NULL, default 'USD' |
+| created_at | TIMESTAMPTZ | NOT NULL, default now() |
+
+Created automatically on registration. One row per user.
+
 ### deposits
 | Column | Type | Constraints |
 |---|---|---|
 | id | UUID | PK |
-| user_id | UUID | FK → users.id CASCADE DELETE, INDEX |
+| user_id | UUID | FK → users.id CASCADE, INDEX |
 | title | VARCHAR | NOT NULL |
 | bank_name | VARCHAR | nullable |
 | amount | NUMERIC(18,2) | NOT NULL |
-| currency | VARCHAR(3) | NOT NULL — USD/EUR/RUB/GEL/BYN |
+| currency | VARCHAR(3) | NOT NULL |
 | open_date | DATE | NOT NULL |
-| close_date | DATE | nullable (open-ended deposit) |
-| annual_rate | NUMERIC(6,4) | NOT NULL — percentage, e.g. 17.0000 |
+| close_date | DATE | nullable |
+| annual_rate | NUMERIC(6,4) | NOT NULL |
+| interest_type | VARCHAR(20) | NOT NULL, default 'simple' |
+| compound_frequency | VARCHAR(20) | nullable — daily/monthly/quarterly/annually |
+| source_id | UUID | nullable, INDEX — original UUID when imported |
 | created_at | TIMESTAMPTZ | NOT NULL, default now() |
 
 ### subscriptions
 | Column | Type | Constraints |
 |---|---|---|
 | id | UUID | PK |
-| user_id | UUID | FK → users.id CASCADE DELETE, INDEX |
+| user_id | UUID | FK → users.id CASCADE, INDEX |
 | title | VARCHAR | NOT NULL |
 | category | VARCHAR | nullable |
 | amount | NUMERIC(18,2) | NOT NULL |
@@ -167,45 +187,92 @@ On Railway, set these in **Project → Variables**. `DATABASE_URL` is auto-provi
 | start_date | DATE | NOT NULL |
 | end_date | DATE | nullable |
 | is_active | BOOLEAN | NOT NULL |
+| source_id | UUID | nullable, INDEX |
 | created_at | TIMESTAMPTZ | NOT NULL, default now() |
+
+### properties
+| Column | Type | Constraints |
+|---|---|---|
+| id | UUID | PK |
+| user_id | UUID | FK → users.id CASCADE, INDEX |
+| name | VARCHAR | NOT NULL |
+| address | VARCHAR | nullable |
+| purchase_date | DATE | NOT NULL |
+| purchase_price | NUMERIC(18,2) | NOT NULL |
+| currency | VARCHAR(3) | NOT NULL |
+| status | VARCHAR(20) | NOT NULL — active/sold |
+| sale_date | DATE | nullable |
+| sale_price | NUMERIC(18,2) | nullable |
+| sale_notes | VARCHAR | nullable |
+| source_id | UUID | nullable, INDEX |
+| created_at | TIMESTAMPTZ | NOT NULL, default now() |
+
+### property_transactions
+| Column | Type | Constraints |
+|---|---|---|
+| id | UUID | PK |
+| property_id | UUID | FK → properties.id CASCADE, INDEX |
+| type | VARCHAR(20) | NOT NULL — income/expense |
+| category | VARCHAR | NOT NULL |
+| title | VARCHAR | NOT NULL |
+| amount | NUMERIC(18,2) | NOT NULL |
+| currency | VARCHAR(3) | NOT NULL |
+| billing_cycle | VARCHAR(20) | NOT NULL — one_time/monthly/weekly/quarterly/yearly |
+| transaction_date | DATE | nullable — for one_time only |
+| start_date | DATE | nullable — for recurring |
+| end_date | DATE | nullable — for recurring |
+| created_at | TIMESTAMPTZ | NOT NULL, default now() |
+
+> **Note:** The date field is named `transaction_date` (not `date`) to avoid Python namespace conflict with `datetime.date` in Pydantic v2 class bodies.
 
 ---
 
 ## Authentication Flow
 
-1. **Register** — `POST /auth/register` with `{email, password}`.
-   - Password is bcrypt-hashed and stored.
-   - Returns `{access_token, refresh_token}`.
+1. **Register** — `POST /auth/register` → bcrypt-hashed password, creates UserSettings row, returns token pair.
+2. **Login** — `POST /auth/login` → verifies hash, returns new token pair.
+3. **Protected endpoints** — `Authorization: Bearer <access_token>` header required.
+4. **Refresh** — `POST /auth/refresh` → returns new token pair (rotation).
 
-2. **Login** — `POST /auth/login` with same body.
-   - Verifies bcrypt hash.
-   - Returns new token pair.
+Access tokens expire in 30 min, refresh tokens in 30 days. Neither stored server-side.
 
-3. **Protected endpoints** — pass `Authorization: Bearer <access_token>` header.
-   - FastAPI dependency `get_current_user` validates the token, extracts `sub` (user UUID), loads the user from DB.
+---
 
-4. **Refresh** — `POST /auth/refresh` with `{refresh_token}`.
-   - Validates the refresh token type claim.
-   - Returns a new token pair. (Rotation — both tokens are replaced.)
+## Module System
 
-Access tokens expire in 30 minutes. Refresh tokens expire in 30 days. Neither is stored server-side; revocation is not currently supported.
+Each user has a `UserSettings` row with boolean module flags. Disabled modules:
+- Return `403 Forbidden` on module-specific endpoints.
+- Return `null` (not `0`) for their analytics columns.
+
+The `require_module(name)` dependency factory in `app/auth/dependencies.py` enforces this per-router:
+
+```python
+router = APIRouter(dependencies=[Depends(get_current_user), Depends(require_module("property"))])
+```
 
 ---
 
 ## Business Logic
 
-### Deposit Income (Simple Interest)
+### Deposit Income
 
-```python
+**Simple interest:**
+```
 income = amount × (annual_rate / 100) × (days / 365)
+days = min(today, close_date) − open_date
 ```
 
-where `days = min(today, close_date) - open_date`.
+**Compound interest:**
+```
+A = amount × (1 + r/n)^(n×t)
+income = A − amount
 
-- If `close_date` is `None` (open-ended), `today` is used.
-- Result is truncated to 2 decimal places at the schema layer.
+r = annual_rate / 100
+t = days / 365
+n = periods per year: daily=365, monthly=12, quarterly=4, annually=1
+```
 
-### Subscription Monthly Cost Normalization
+### Subscription Monthly Cost
 
 | Billing cycle | Formula |
 |---|---|
@@ -215,149 +282,156 @@ where `days = min(today, close_date) - open_date`.
 | `yearly` | `amount / 12` |
 | `one_time` | `0` |
 
-### Subscription `next_payment_date`
+`next_payment_date`: advances `start_date` by billing delta until it reaches or passes today. Returns `None` if inactive, past `end_date`, or a past one_time.
 
-A calculated field — not stored in the DB.
+### Property Cashflow
 
-- Returns `None` if `is_active=False` or `end_date` is in the past.
-- For `one_time`: returns `start_date` if it's in the future, else `None`.
-- For recurring: advances `start_date` by the billing delta until it reaches or passes today.
+`monthly_cashflow(transactions, year, month, currency)`:
+- `one_time` transactions: counted in the month their `transaction_date` falls.
+- Recurring transactions: counted in months between `start_date` and `end_date`.
+
+`total_summary(property, transactions)`:
+- `total_invested` = `purchase_price` + all one_time expense amounts.
+- `profit` = `sale_price − total_invested + total_income` (only if status = sold).
 
 ---
 
 ## API Endpoints
 
+All endpoints except `/auth/*` and `/health` require `Authorization: Bearer <token>`.
+
 ### Auth
 
-#### POST /auth/register
-```json
-// Request
-{"email": "alice@example.com", "password": "secret123"}
+| Method | Path | Description |
+|---|---|---|
+| POST | /auth/register | Create account, returns token pair |
+| POST | /auth/login | Login, returns token pair |
+| POST | /auth/refresh | Refresh tokens |
 
-// Response 201
+### Settings
+
+| Method | Path | Description |
+|---|---|---|
+| GET | /settings | Get user settings |
+| PUT | /settings | Update settings (partial) |
+
+```json
+// GET /settings response
 {
-  "access_token": "eyJ...",
-  "refresh_token": "eyJ...",
-  "token_type": "bearer"
+  "id": "...",
+  "user_id": "...",
+  "module_deposits": true,
+  "module_subscriptions": true,
+  "module_property": false,
+  "default_currency": "USD",
+  "created_at": "..."
+}
+
+// PUT /settings request (all fields optional)
+{
+  "module_property": true,
+  "default_currency": "RUB"
 }
 ```
-
-#### POST /auth/login
-Same request/response shape as `/auth/register`. Returns `200`.
-
-#### POST /auth/refresh
-```json
-// Request
-{"refresh_token": "eyJ..."}
-
-// Response 200
-{"access_token": "eyJ...", "refresh_token": "eyJ...", "token_type": "bearer"}
-```
-
----
 
 ### Deposits
 
-All require `Authorization: Bearer <token>`.
+| Method | Path | Description |
+|---|---|---|
+| GET | /deposits | List all deposits (with income_to_date) |
+| POST | /deposits | Create deposit |
+| GET | /deposits/{id} | Get single deposit |
+| PUT | /deposits/{id} | Partial update |
+| DELETE | /deposits/{id} | Delete (204) |
 
-#### GET /deposits
 ```json
-// Response 200
-[
-  {
-    "id": "3fa85f64-...",
-    "user_id": "...",
-    "title": "Sberbank 2026",
-    "bank_name": "Sberbank",
-    "amount": "100000.00",
-    "currency": "RUB",
-    "open_date": "2026-01-01",
-    "close_date": "2026-12-31",
-    "annual_rate": "17.0000",
-    "created_at": "2026-01-01T10:00:00Z",
-    "income_to_date": "2301.37",
-    "days_elapsed": 49
-  }
-]
-```
-
-#### POST /deposits
-```json
-// Request
+// POST /deposits — simple interest
 {
   "title": "Sberbank 2026",
-  "bank_name": "Sberbank",
   "amount": "100000.00",
   "currency": "RUB",
   "open_date": "2026-01-01",
-  "close_date": "2026-12-31",
-  "annual_rate": "17.0"
+  "annual_rate": "17.0",
+  "interest_type": "simple"
 }
-// Response 201 — same as GET item
+
+// POST /deposits — compound interest
+{
+  "title": "Alpha Bank",
+  "amount": "100000.00",
+  "currency": "RUB",
+  "open_date": "2026-01-01",
+  "annual_rate": "15.0",
+  "interest_type": "compound",
+  "compound_frequency": "monthly"
+}
 ```
-
-#### GET /deposits/{id}
-Returns a single deposit or `404`.
-
-#### PUT /deposits/{id}
-Partial update — all fields optional. Returns updated deposit.
-
-#### DELETE /deposits/{id}
-Returns `204 No Content`.
-
----
 
 ### Subscriptions
 
-All require `Authorization: Bearer <token>`.
+| Method | Path | Description |
+|---|---|---|
+| GET | /subscriptions | List all (with monthly_cost, next_payment_date) |
+| POST | /subscriptions | Create |
+| GET | /subscriptions/{id} | Get single |
+| PUT | /subscriptions/{id} | Partial update |
+| DELETE | /subscriptions/{id} | Delete (204) |
 
-#### GET /subscriptions
-Optional query: `?filter=active|cancelled|one_time`
+### Properties
+
+Requires `module_property = true` in user settings (otherwise 403).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | /properties | List all properties |
+| POST | /properties | Create property |
+| GET | /properties/{id} | Get with summary (total_invested, profit) |
+| PUT | /properties/{id} | Partial update |
+| DELETE | /properties/{id} | Delete (204) |
+| GET | /properties/{id}/transactions | List transactions |
+| POST | /properties/{id}/transactions | Add transaction |
+| PUT | /properties/{id}/transactions/{tx_id} | Update transaction |
+| DELETE | /properties/{id}/transactions/{tx_id} | Delete (204) |
+| GET | /properties/{id}/analytics?year=N | Monthly cashflow for year |
 
 ```json
-// Response 200
-[
-  {
-    "id": "...",
-    "user_id": "...",
-    "title": "Netflix",
-    "category": "Entertainment",
-    "amount": "15.99",
-    "currency": "USD",
-    "billing_cycle": "monthly",
-    "start_date": "2026-01-01",
-    "end_date": null,
-    "is_active": true,
-    "created_at": "2026-01-01T10:00:00Z",
-    "next_payment_date": "2026-06-01",
-    "monthly_cost": "15.99"
-  }
-]
-```
-
-#### POST /subscriptions
-```json
+// POST /properties
 {
-  "title": "Netflix",
-  "category": "Entertainment",
-  "amount": "15.99",
-  "currency": "USD",
-  "billing_cycle": "monthly",
-  "start_date": "2026-01-01",
-  "is_active": true
+  "name": "Flat Moscow",
+  "purchase_date": "2020-01-01",
+  "purchase_price": "5000000.00",
+  "currency": "RUB",
+  "status": "active"
 }
-// Response 201
+
+// POST /properties/{id}/transactions — one_time
+{
+  "type": "expense",
+  "category": "renovation",
+  "title": "Kitchen repair",
+  "amount": "200000.00",
+  "currency": "RUB",
+  "billing_cycle": "one_time",
+  "transaction_date": "2021-06-15"
+}
+
+// POST /properties/{id}/transactions — recurring
+{
+  "type": "income",
+  "category": "rent",
+  "title": "Monthly rent",
+  "amount": "50000.00",
+  "currency": "RUB",
+  "billing_cycle": "monthly",
+  "start_date": "2022-01-01"
+}
 ```
-
-#### GET, PUT, DELETE /subscriptions/{id} — same patterns as deposits.
-
----
 
 ### Analytics
 
-#### GET /analytics?year=2026&currency=RUB
+#### GET /analytics?year=YYYY&currency=XXX
 
-Returns monthly breakdown for all 12 months. Months before today are **actual**, months from today onward are **projected**.
+Returns 12 months. Module-disabled fields are `null`, not `0`.
 
 ```json
 {
@@ -368,166 +442,126 @@ Returns monthly breakdown for all 12 months. Months before today are **actual**,
       "month": 1,
       "year": 2026,
       "deposit_income": "2301.37",
-      "subscription_expenses": "0.00",
-      "net": "2301.37",
+      "subscription_expenses": "1200.00",
+      "property_income": null,
+      "property_expenses": null,
+      "net": "1101.37",
       "is_projected": false
-    },
-    ...
+    }
   ]
 }
 ```
 
-Deposit income is calculated per-month using incremental simple interest (income earned between month start and month end). Subscription expenses use the monthly normalized cost for any active subscription that overlaps the month.
-
----
+`property_income` and `property_expenses` are `null` when `module_property = false`.
 
 ### Export / Import
 
 #### GET /export/csv
-Downloads a ZIP file containing `deposits.csv` and `subscriptions.csv`.
 
-**deposits.csv columns:**
-`id, title, bank_name, amount, currency, open_date, close_date, annual_rate, created_at`
-
-**subscriptions.csv columns:**
-`id, title, category, amount, currency, billing_cycle, start_date, end_date, is_active, created_at`
-
-- Dates in ISO 8601 format: `YYYY-MM-DD`
-- Empty optional fields are empty strings
-- `amount` / `annual_rate` as decimal strings
+Downloads a ZIP with four CSVs:
+- `deposits.csv` — columns: `id, title, bank_name, amount, currency, open_date, close_date, annual_rate, created_at`
+- `subscriptions.csv` — columns: `id, title, category, amount, currency, billing_cycle, start_date, end_date, is_active, created_at`
+- `properties.csv` — columns: `id, name, address, purchase_date, purchase_price, currency, status, sale_date, sale_price, sale_notes, created_at`
+- `property_transactions.csv` — columns: `id, property_id, type, category, title, amount, currency, billing_cycle, transaction_date, start_date, end_date, created_at`
 
 #### POST /import/csv
-Accepts multipart form with `file` field — either a `.zip` containing one or both CSVs, or a single `.csv`.
 
-Deduplication is by `id` — rows with an `id` that already exists for this user are skipped.
+Accepts `.zip` (all four CSVs) or a single `.csv`. Deduplication by `id` + `source_id` — safe to re-import. Cross-user import generates new UUIDs.
 
 ```json
 // Response 200
-{"deposits": 3, "subscriptions": 2, "skipped": 1}
+{"deposits": 3, "subscriptions": 2, "properties": 1, "property_transactions": 5, "skipped": 0}
 ```
 
 ---
 
 ## Alembic Migrations
 
-### Apply all migrations
+Migrations run automatically at startup (`railway.toml` startCommand). To run manually:
+
 ```bash
 alembic upgrade head
-```
-
-### Create a new migration after changing a model
-```bash
-alembic revision --autogenerate -m "add column X"
-# Review the generated file in alembic/versions/
-alembic upgrade head
-```
-
-### Roll back one step
-```bash
+alembic revision --autogenerate -m "describe change"
 alembic downgrade -1
 ```
+
+Current migrations:
+- `0001` — users, deposits, subscriptions
+- `0002` — compound interest fields on deposits
+- `0003` — user_settings table
+- `0004` — properties and property_transactions tables
+- `0005` — source_id on properties
+- `0006` — default_currency on user_settings
 
 ---
 
 ## Testing
 
-### Run all tests
 ```bash
 pytest
-```
-
-### With coverage report
-```bash
 pytest --cov=app --cov-report=term-missing
 ```
 
-### What is covered
+216 tests. All use real PostgreSQL (`rentivo_test`). Isolation via `TRUNCATE TABLE users RESTART IDENTITY CASCADE` before each test + per-request session factory.
 
-| File | Coverage focus |
+| File | Coverage |
 |---|---|
-| `test_auth.py` | Register, login, refresh — success + error paths |
-| `test_deposits.py` | Full CRUD, ownership isolation |
-| `test_subscriptions.py` | Full CRUD, filter query param |
-| `test_analytics.py` | Empty result, result with deposit |
-| `test_export_import.py` | ZIP export, import deduplication |
-| `test_services.py` | Pure unit tests for income formula, monthly cost, next_payment_date |
-
-Tests use a real PostgreSQL database (`rentivo_test`). Each test function gets a fresh transaction that is rolled back after the test, keeping tests isolated without truncating tables.
+| `test_auth.py` | Register, login, refresh |
+| `test_deposits.py` | CRUD, ownership isolation, compound interest |
+| `test_subscriptions.py` | CRUD, filters |
+| `test_settings.py` | Module toggles, default_currency |
+| `test_properties.py` | CRUD, transactions, analytics, module gate |
+| `test_analytics.py` | Module-aware nulls, currency filter |
+| `test_export_import.py` | ZIP export/import, cross-user import, deduplication |
+| `test_services.py` | Pure unit tests: income formulas, monthly cost, cashflow |
 
 ---
 
 ## Deployment to Railway
 
-### First deploy
+### Minimal required variables (rentivo-api service)
 
-1. Push code to GitHub.
-2. Create a Railway project → **New Service → GitHub Repo**.
-3. Add a **PostgreSQL** plugin to the project. Railway injects `DATABASE_URL` automatically — but note it uses `postgresql://` not `postgresql+asyncpg://`. Fix this by adding a custom variable:
-   ```
-   DATABASE_URL=postgresql+asyncpg://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}
-   ```
-4. Set remaining variables in **Project → Variables**:
-   - `SECRET_KEY` — generate with `openssl rand -hex 32`
-5. Railway will build the Dockerfile and start `uvicorn` per `railway.toml`.
-6. Run migrations via Railway shell or a one-off command:
-   ```bash
-   railway run alembic upgrade head
-   ```
+```
+DATABASE_URL = ${{Postgres.DATABASE_URL}}
+SECRET_KEY   = <openssl rand -hex 32>
+```
 
-### GitHub Actions CI/CD
+All other variables have code defaults (ALGORITHM=HS256, etc.).
 
-The workflow at `.github/workflows/ci.yml`:
-- Runs on every push to `main` and on PRs.
-- Spins up a Postgres service container.
-- Runs `alembic upgrade head` then `pytest`.
-- On push to `main` (after tests pass): deploys via `railway up` **if** `RAILWAY_TOKEN` is configured. If the secret is absent the deploy step is skipped gracefully — CI still turns green.
+### How it works
 
-#### Getting a Railway token
+1. Push to `main` → GitHub Actions runs tests.
+2. Tests pass → Railway auto-deploys (Wait for CI enabled).
+3. At startup: `alembic upgrade head && uvicorn ...` (see `railway.toml`).
 
-1. Open [railway.app](https://railway.app) and log in.
-2. Click your avatar (top-right) → **Account Settings**.
-3. Go to the **Tokens** tab → **Create Token**.
-4. Give it a name (e.g. `github-actions`) and click **Create**. Copy the value — it is shown only once.
+`DATABASE_URL` from Railway Postgres uses `postgresql://` scheme. `app/config.py` normalizes it to `postgresql+asyncpg://` automatically.
 
-#### Adding the token to GitHub
+### CORS
 
-1. Open your GitHub repository.
-2. Go to **Settings → Secrets and variables → Actions**.
-3. Click **New repository secret**.
-4. Name: `RAILWAY_TOKEN`, Value: paste the token from above.
-5. Click **Add secret**.
-
-After saving, the next push to `main` will trigger a real deployment.
+`app/main.py` includes `CORSMiddleware` with `allow_origins=["*"]`. Required for the GitHub Pages web UI to call the API. Safe since all endpoints are JWT-protected.
 
 ---
 
 ## Known Limitations
 
-- **No token revocation** — refresh tokens cannot be invalidated without a token blocklist.
-- **Single currency analytics** — analytics endpoint filters by a single currency; multi-currency aggregation with FX rates is not implemented.
-- **No rate limiting** — all endpoints are unthrottled.
-- **No pagination** — list endpoints return all records.
-- **No email verification** — any email string is accepted at registration.
+- No token revocation — refresh tokens cannot be invalidated.
+- Single currency per analytics query — no FX rate conversion.
+- No pagination — list endpoints return all records.
+- No rate limiting.
+- No email verification.
 
 ---
 
 ## Roadmap
 
-### Web UI (`rentivo-ui`)
+### Web UI
 
-See [technical-ui.md](technical-ui.md) for full stack, pages, and task list.
+See [technical-ui.md](technical-ui.md).
 
-### iOS App (`rentivo-ios`)
+### Backend
 
-Native Swift / SwiftUI application. Separate repository.
-Communicates with the same REST API using `URLSession` + `Codable`.
-Planned after the web UI is complete.
-
-### Backend improvements
-
-- [ ] Pagination (`limit` / `offset`) on list endpoints
-- [ ] Multi-currency analytics with configurable FX rates
-- [ ] Refresh token revocation (token blocklist in Redis or DB)
-- [ ] Rate limiting (slowapi or API gateway)
-- [ ] Email verification on registration
-- [ ] Push notification hooks for upcoming subscription payments
+- [ ] Pagination on list endpoints
+- [ ] Multi-currency analytics with FX rates
+- [ ] Refresh token revocation
+- [ ] Rate limiting
+- [ ] Email verification

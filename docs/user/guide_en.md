@@ -1,13 +1,14 @@
-# Rentivo API — User Guide
+# Rentivo — User Guide
 
 ## What is Rentivo?
 
-Rentivo is a personal finance API that helps you track two things:
+Rentivo is a personal finance tracker. It helps you manage:
 
-- **Bank deposits** — how much interest you are earning and when a deposit closes.
-- **Subscriptions** — recurring payments like streaming services, software, or gym memberships.
+- **Deposits** — how much interest you are earning and when a deposit closes.
+- **Subscriptions** — recurring payments: streaming, software, gym, etc.
+- **Properties** — purchases, rental income, expenses, and profit on sale.
 
-The API provides a monthly analytics view so you can see at a glance how much income your deposits are generating versus how much your subscriptions are costing you.
+The monthly analytics view shows income vs. expenses by month, with a forecast for future months.
 
 ---
 
@@ -15,103 +16,141 @@ The API provides a monthly analytics view so you can see at a glance how much in
 
 ### Register
 
-Create an account by sending your email and password:
-
 ```
 POST /auth/register
-{
-  "email": "you@example.com",
-  "password": "your-password"
-}
+{"email": "you@example.com", "password": "your-password"}
 ```
 
-You receive an `access_token` and a `refresh_token`. Store both.
+Returns `access_token` and `refresh_token`.
 
-### Log In
-
-If you already have an account:
+### Login
 
 ```
 POST /auth/login
-{
-  "email": "you@example.com",
-  "password": "your-password"
-}
+{"email": "you@example.com", "password": "your-password"}
 ```
 
-### Use the Access Token
+### Using the token
 
-Every request to deposits, subscriptions, or analytics must include:
+Every request (except register and login) requires:
 
 ```
 Authorization: Bearer <access_token>
 ```
 
-### Refresh Your Token
+### Refreshing tokens
 
-Access tokens expire after 30 minutes. Use the refresh token to get a new pair without re-entering your password:
+Access tokens expire in 30 minutes. To get a new pair without re-entering your password:
 
 ```
 POST /auth/refresh
+{"refresh_token": "<your-refresh-token>"}
+```
+
+---
+
+## Settings
+
+Settings let you toggle modules on/off and set a default currency.
+
+### Get settings
+
+```
+GET /settings
+```
+
+```json
 {
-  "refresh_token": "<your-refresh-token>"
+  "module_deposits": true,
+  "module_subscriptions": true,
+  "module_property": false,
+  "default_currency": "USD"
 }
 ```
+
+### Update settings
+
+```
+PUT /settings
+```
+
+Pass any subset of fields:
+
+```json
+{"module_property": true, "default_currency": "EUR"}
+```
+
+### Modules
+
+| Module | Field | Default |
+|---|---|---|
+| Deposits | `module_deposits` | enabled |
+| Subscriptions | `module_subscriptions` | enabled |
+| Property | `module_property` | disabled |
+
+A disabled module:
+- Returns `403` on its endpoints.
+- Returns `null` (not `0`) in analytics.
+
+### Default currency
+
+`default_currency` — ISO currency code: `USD`, `EUR`, `RUB`, `GEL`, `BYN`. Used as the pre-selected value when creating deposits, subscriptions, properties, and in analytics.
 
 ---
 
 ## Deposits
 
-### Add a Deposit
+### Add a deposit
 
 ```
 POST /deposits
+```
+
+**Simple interest:**
+```json
 {
-  "title": "Sberbank savings 2026",
+  "title": "Sberbank 2026",
   "bank_name": "Sberbank",
   "amount": "100000.00",
   "currency": "RUB",
   "open_date": "2026-01-01",
   "close_date": "2026-12-31",
-  "annual_rate": "17.0"
+  "annual_rate": "17.0",
+  "interest_type": "simple"
 }
 ```
 
-- `currency` must be one of: `USD`, `EUR`, `RUB`, `GEL`, `BYN`.
-- `close_date` is optional — leave it out for open-ended deposits.
-- `annual_rate` is the annual percentage, e.g. `17.0` means 17%.
+**Compound interest:**
+```json
+{
+  "title": "Alpha Bank",
+  "amount": "100000.00",
+  "currency": "RUB",
+  "open_date": "2026-01-01",
+  "annual_rate": "15.0",
+  "interest_type": "compound",
+  "compound_frequency": "monthly"
+}
+```
 
-### View All Deposits
+- `interest_type` — `simple` or `compound`. Default: `simple`.
+- `compound_frequency` — required for compound: `daily`, `monthly`, `quarterly`, `annually`.
+- `close_date` — optional; omit for open-ended deposits.
+
+### List deposits
 
 ```
 GET /deposits
 ```
 
-Each deposit in the list includes two calculated fields:
+Each deposit includes:
+- `income_to_date` — accrued interest as of today.
+- `days_elapsed` — number of active days.
 
-- `income_to_date` — interest earned so far using simple interest formula.
-- `days_elapsed` — how many days the deposit has been active (capped at the close date if it has passed).
-
-### View a Single Deposit
-
-```
-GET /deposits/{id}
-```
-
-### Edit a Deposit
+### Update / delete
 
 ```
-PUT /deposits/{id}
-{
-  "title": "Renamed deposit"
-}
-```
-
-All fields are optional — only send what you want to change.
-
-### Delete a Deposit
-
-```
+PUT /deposits/{id}   — partial update
 DELETE /deposits/{id}
 ```
 
@@ -119,7 +158,7 @@ DELETE /deposits/{id}
 
 ## Subscriptions
 
-### Add a Subscription
+### Add a subscription
 
 ```
 POST /subscriptions
@@ -133,55 +172,113 @@ POST /subscriptions
 }
 ```
 
-- `billing_cycle` options: `weekly`, `monthly`, `quarterly`, `yearly`, `one_time`.
-- `end_date` is optional — use it when you know when the subscription will end.
-- `is_active` defaults to `true`.
+- `billing_cycle`: `weekly`, `monthly`, `quarterly`, `yearly`, `one_time`.
+- `end_date` — optional.
+- `is_active` — default `true`.
 
-### View Subscriptions
+### List subscriptions
 
 ```
 GET /subscriptions
 ```
 
-You can filter the list:
+Each subscription includes:
+- `next_payment_date` — calculated automatically.
+- `monthly_cost` — amount normalized to a monthly equivalent.
+
+### Cancel / delete
 
 ```
-GET /subscriptions?filter=active      — only active recurring subscriptions
-GET /subscriptions?filter=cancelled   — only cancelled subscriptions
-GET /subscriptions?filter=one_time    — only one-time payments
-```
-
-Each subscription shows:
-
-- `next_payment_date` — when the next charge is expected (calculated automatically).
-- `monthly_cost` — the subscription cost normalized to a monthly amount.
-
-### Cancel a Subscription
-
-```
-PUT /subscriptions/{id}
-{
-  "is_active": false
-}
-```
-
-### Delete a Subscription
-
-```
+PUT /subscriptions/{id} {"is_active": false}
 DELETE /subscriptions/{id}
 ```
 
 ---
 
-## Analytics
+## Properties
 
-Get a full year breakdown of your income versus spending:
+Enable the module first: `PUT /settings {"module_property": true}`.
+
+### Add a property
+
+```
+POST /properties
+{
+  "name": "Flat Moscow",
+  "address": "Pushkin St, 10",
+  "purchase_date": "2020-01-01",
+  "purchase_price": "5000000.00",
+  "currency": "RUB",
+  "status": "active"
+}
+```
+
+When sold, include `status: "sold"`, `sale_date`, and `sale_price`.
+
+### Property detail
+
+```
+GET /properties/{id}
+```
+
+Returns the property plus `summary`:
+- `total_invested` — purchase price + all one-time expenses.
+- `profit` — profit on sale (only for sold properties).
+
+### Transactions
+
+Transactions track income (rent) and expenses (repairs, utilities) for a property.
+
+```
+POST /properties/{id}/transactions
+```
+
+**One-time expense:**
+```json
+{
+  "type": "expense",
+  "category": "renovation",
+  "title": "Kitchen repair",
+  "amount": "200000.00",
+  "currency": "RUB",
+  "billing_cycle": "one_time",
+  "transaction_date": "2021-06-15"
+}
+```
+
+**Recurring income (rent):**
+```json
+{
+  "type": "income",
+  "category": "rent",
+  "title": "Monthly rent",
+  "amount": "50000.00",
+  "currency": "RUB",
+  "billing_cycle": "monthly",
+  "start_date": "2022-01-01"
+}
+```
+
+- For `one_time` — use `transaction_date`.
+- For recurring — use `start_date` (and optionally `end_date`).
+
+### Property analytics
+
+```
+GET /properties/{id}/analytics?year=2026
+```
+
+Returns monthly income and expenses for the property.
+
+---
+
+## Analytics
 
 ```
 GET /analytics?year=2026&currency=RUB
 ```
 
-The response contains a row for each of the 12 months:
+Returns 12 rows — one per month:
 
 ```json
 {
@@ -193,55 +290,63 @@ The response contains a row for each of the 12 months:
       "year": 2026,
       "deposit_income": "2301.37",
       "subscription_expenses": "1200.00",
-      "net": "1101.37",
+      "property_income": "50000.00",
+      "property_expenses": "0.00",
+      "net": "51101.37",
       "is_projected": false
-    },
-    ...
+    }
   ]
 }
 ```
 
-- Months in the past show **actual** figures (`is_projected: false`).
-- Months from today onward show **projected** figures (`is_projected: true`), based on your current deposits and active subscriptions.
-- Only deposits and subscriptions in the requested `currency` are included.
+- Past months — actual data (`is_projected: false`).
+- Future months — forecast (`is_projected: true`).
+- Disabled module fields return `null`.
+- Only records in the specified currency are included.
 
 ---
 
-## Exporting Your Data
+## Export and Import
 
-Download all your deposits and subscriptions as a ZIP file containing two CSV files:
+### Export
 
 ```
 GET /export/csv
 ```
 
-Save the ZIP — it contains `deposits.csv` and `subscriptions.csv`. You can open them in Excel, Google Sheets, or any spreadsheet app.
+Downloads a ZIP archive with four files:
+- `deposits.csv`
+- `subscriptions.csv`
+- `properties.csv`
+- `property_transactions.csv`
 
----
+Open in Excel or Google Sheets.
 
-## Importing Data
-
-If you have data from another source or a previous export, you can import it:
+### Import
 
 ```
 POST /import/csv
 Content-Type: multipart/form-data
-file: <your-zip-or-csv-file>
+file: <zip or csv>
 ```
 
-- You can upload either the full ZIP or a single CSV file.
-- Rows whose `id` already exists in your account are **skipped** (safe to re-import).
-- The response tells you how many records were created and how many were skipped.
+- Accepts the full ZIP or a single CSV.
+- Rows with an already-existing `id` are skipped — safe to re-import.
+- Supports importing from another user's export (generates new UUIDs).
+
+```json
+// Response
+{"deposits": 3, "subscriptions": 2, "properties": 1, "property_transactions": 5, "skipped": 0}
+```
 
 ---
 
-## Error Reference
+## Error Codes
 
-| HTTP status | Meaning |
+| HTTP | Meaning |
 |---|---|
-| `400 Bad Request` | The request body is malformed or a required field is missing |
-| `401 Unauthorized` | Token is missing, expired, or invalid |
-| `403 Forbidden` | No `Authorization` header was provided |
-| `404 Not Found` | The record does not exist or belongs to a different user |
-| `409 Conflict` | Email is already registered |
-| `422 Unprocessable Entity` | Field validation failed (e.g. negative amount, unrecognized currency) |
+| `401` | Token missing, expired, or invalid |
+| `403` | Authorization header not sent, or module is disabled |
+| `404` | Record does not exist or belongs to another user |
+| `409` | Email already registered |
+| `422` | Field validation error |
