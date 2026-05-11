@@ -47,6 +47,16 @@ async def seed_demo_data(user_id: uuid.UUID, db: AsyncSession) -> dict:
             annual_rate=Decimal("5.30"),
             interest_type="simple",
         ),
+        Deposit(
+            id=uuid.uuid4(), user_id=user_id,
+            title="Wells Fargo — Short Term",
+            bank_name="Wells Fargo",
+            amount=Decimal("5000.00"), currency="USD",
+            open_date=today - relativedelta(months=8),
+            close_date=today - relativedelta(months=2),
+            annual_rate=Decimal("4.50"),
+            interest_type="simple",
+        ),
     ]
     for d in deposits:
         db.add(d)
