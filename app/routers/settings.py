@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.user_settings import UserSettings
 from app.schemas.settings import UserSettingsOut, UserSettingsUpdate
+from app.services import demo as demo_svc
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -36,3 +37,19 @@ async def update_settings(
     await db.commit()
     await db.refresh(settings)
     return settings
+
+
+@router.post("/demo-data", status_code=201)
+async def load_demo_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await demo_svc.seed_demo_data(current_user.id, db)
+
+
+@router.delete("/data", status_code=200)
+async def clear_all_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await demo_svc.clear_all_data(current_user.id, db)
