@@ -32,5 +32,17 @@ services:
     volumes:
       - .:/app
 
+  ui:
+    build:
+      context: ../rentivo-ui
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../rentivo-ui:/app
+      - ui_node_modules:/app/node_modules
+    environment:
+      VITE_API_URL: http://localhost:8000
+
 volumes:
   pgdata:
+  ui_node_modules:
