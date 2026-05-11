@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,4 +19,5 @@ class UserSettings(Base):
     module_deposits: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     module_subscriptions: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     module_property: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    default_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
