@@ -112,6 +112,67 @@ async def seed_demo_data(user_id: uuid.UUID, db: AsyncSession) -> dict:
             start_date=today - relativedelta(months=8),
             is_active=True,
         ),
+        # ── Cancelled ──────────────────────────────────────────────────────────
+        Subscription(
+            id=uuid.uuid4(), user_id=user_id,
+            title="Notion Pro", category="Productivity",
+            amount=Decimal("16.00"), currency="USD",
+            billing_cycle="monthly",
+            start_date=today - relativedelta(months=14),
+            end_date=today - relativedelta(months=2),
+            is_active=False,
+        ),
+        Subscription(
+            id=uuid.uuid4(), user_id=user_id,
+            title="Dropbox Plus", category="Cloud",
+            amount=Decimal("119.99"), currency="USD",
+            billing_cycle="yearly",
+            start_date=today - relativedelta(years=2),
+            end_date=today - relativedelta(months=5),
+            is_active=False,
+        ),
+        Subscription(
+            id=uuid.uuid4(), user_id=user_id,
+            title="LinkedIn Premium", category="Work",
+            amount=Decimal("39.99"), currency="USD",
+            billing_cycle="monthly",
+            start_date=today - relativedelta(months=10),
+            end_date=today - relativedelta(months=4),
+            is_active=False,
+        ),
+        # ── One-time purchases ──────────────────────────────────────────────────
+        Subscription(
+            id=uuid.uuid4(), user_id=user_id,
+            title="IntelliJ IDEA Ultimate", category="Dev tools",
+            amount=Decimal("249.00"), currency="USD",
+            billing_cycle="one_time",
+            start_date=today - relativedelta(months=11),
+            is_active=True,
+        ),
+        Subscription(
+            id=uuid.uuid4(), user_id=user_id,
+            title="Sketch", category="Design",
+            amount=Decimal("99.00"), currency="USD",
+            billing_cycle="one_time",
+            start_date=today - relativedelta(months=7),
+            is_active=True,
+        ),
+        Subscription(
+            id=uuid.uuid4(), user_id=user_id,
+            title="Pixelmator Pro", category="Design",
+            amount=Decimal("49.99"), currency="USD",
+            billing_cycle="one_time",
+            start_date=today - relativedelta(months=3),
+            is_active=True,
+        ),
+        Subscription(
+            id=uuid.uuid4(), user_id=user_id,
+            title="rentivo.io domain", category="Infrastructure",
+            amount=Decimal("39.00"), currency="USD",
+            billing_cycle="one_time",
+            start_date=today - relativedelta(months=5),
+            is_active=True,
+        ),
     ]
     for s in subs:
         db.add(s)
