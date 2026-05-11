@@ -67,6 +67,6 @@ jobs:
             echo "RAILWAY_TOKEN secret not configured — skipping deployment."
             exit 0
           fi
-          railway up --service api
+          railway up --service rentivo-api
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
