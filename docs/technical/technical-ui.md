@@ -67,8 +67,30 @@ Add this as a CI step to keep types in sync automatically.
 | `/subscriptions` | **Subscriptions** | Table with filter tabs: All / Active / One-time / Cancelled. Columns: title, category, billing cycle, monthly cost, next payment. |
 | `/subscriptions/new` | **New subscription** | Form with billing cycle selector that updates the monthly cost preview in real time. |
 | `/subscriptions/:id` | **Edit subscription** | Same form pre-filled. Cancel (set inactive) and Delete actions. |
-| `/import-export` | **Import / Export** | Export button → downloads ZIP. Import dropzone accepts ZIP or single CSV. Shows import result: created / skipped counts. |
-| `/settings` | **Settings** | Change password form. (Placeholder for future: notification preferences, default currency.) |
+| `/properties` | **Properties** | Table of owned properties. Columns: name, address, purchase date, purchase price, status (active/sold), total invested, profit (if sold). Module-gated — hidden when `module_property = false`. |
+| `/properties/new` | **New property** | Form: name, address, purchase date, purchase price, currency, status. |
+| `/properties/:id` | **Property detail** | Edit property fields. Nested list of transactions (income / expense). Add / edit / delete transactions inline. Summary card: total invested, cumulative income, profit. |
+| `/import-export` | **Import / Export** | Export button → downloads ZIP with four CSVs (`deposits.csv`, `subscriptions.csv`, `properties.csv`, `property_transactions.csv`). Import dropzone accepts ZIP or single CSV. Shows import result: created / skipped counts per entity type. |
+| `/settings` | **Settings** | Change password form. Module toggles: Deposits, Subscriptions, Property — enable/disable sections app-wide. |
+
+---
+
+## API Notes
+
+### Property Transactions
+
+The field for the one-time transaction date is **`transaction_date`** (not `date`). This applies to both the API request/response body and the exported `property_transactions.csv` column header.
+
+Recurring transactions use `start_date` / `end_date` instead.
+
+### Module System
+
+`GET /settings` returns `module_deposits`, `module_subscriptions`, `module_property` booleans. The UI should:
+1. Fetch settings on app load and store in context.
+2. Hide navigation items and pages for disabled modules.
+3. Show the `/settings` page even when a module is off (so the user can re-enable it).
+
+Analytics fields for disabled modules are returned as `null` by the API — render them as `—` rather than `0`.
 
 ---
 
@@ -80,14 +102,16 @@ Add this as a CI step to keep types in sync automatically.
 - [ ] TanStack Query client + query key conventions
 - [ ] React Router layout: public routes (login, register) vs protected routes (everything else)
 - [ ] `AuthContext` — stores access token in memory, exposes `login()` / `logout()` / `user`
-- [ ] API layer — one file per resource (`deposits.ts`, `subscriptions.ts`, etc.) wrapping Axios calls with generated types
+- [ ] `SettingsContext` — fetches `/settings` on login, exposes module flags for conditional rendering
+- [ ] API layer — one file per resource (`deposits.ts`, `subscriptions.ts`, `properties.ts`, `settings.ts`, etc.) wrapping Axios calls with generated types
 - [ ] Login page
 - [ ] Register page
 - [ ] Dashboard page with summary cards and sparklines
-- [ ] Analytics page with Recharts bar chart
+- [ ] Analytics page with Recharts bar chart (null module values shown as `—`)
 - [ ] Deposits list + new + edit pages
 - [ ] Subscriptions list + new + edit pages
-- [ ] Import / Export page
-- [ ] Settings page
+- [ ] Properties list + new + edit/detail pages (with nested transactions)
+- [ ] Import / Export page (ZIP with 4 CSVs)
+- [ ] Settings page (password change + module toggles)
 - [ ] CI: GitHub Actions → Vercel deploy on push to `main`
 - [ ] CI step: regenerate `src/api/types.ts` from live OpenAPI spec
