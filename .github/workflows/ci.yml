@@ -50,23 +50,6 @@ jobs:
       - name: Run tests
         run: pytest --cov=app --cov-report=term-missing -q
 
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy to Railway
-        run: |
-          if [ -z "$RAILWAY_TOKEN" ]; then
-            echo "RAILWAY_TOKEN secret not configured — skipping deployment."
-            exit 0
-          fi
-          railway up --service rentivo-api
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+  # Railway deploys automatically on push via GitHub integration.
+  # "Wait for CI" is enabled in Railway settings — it waits for this workflow
+  # to pass before triggering a deployment.
