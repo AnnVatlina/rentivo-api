@@ -17,6 +17,8 @@ def monthly_cost(sub: Subscription) -> Decimal:
         return amount / Decimal("3")
     if cycle == "yearly":
         return amount / Decimal("12")
+    if cycle == "biennial":
+        return amount / Decimal("24")
     return Decimal("0")  # one_time
 
 
@@ -35,6 +37,7 @@ def next_payment_date(sub: Subscription, today: date | None = None) -> date | No
         "monthly": relativedelta(months=1),
         "quarterly": relativedelta(months=3),
         "yearly": relativedelta(years=1),
+        "biennial": relativedelta(years=2),
     }
     delta = delta_map[sub.billing_cycle]
 

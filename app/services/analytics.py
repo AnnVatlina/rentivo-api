@@ -17,6 +17,7 @@ _BILLING_DELTA = {
     "weekly":    relativedelta(weeks=1),
     "quarterly": relativedelta(months=3),
     "yearly":    relativedelta(years=1),
+    "biennial":  relativedelta(years=2),
 }
 
 

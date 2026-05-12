@@ -13,6 +13,7 @@ class BillingCycle(str, Enum):
     monthly = "monthly"
     quarterly = "quarterly"
     yearly = "yearly"
+    biennial = "biennial"
     one_time = "one_time"
 
 
