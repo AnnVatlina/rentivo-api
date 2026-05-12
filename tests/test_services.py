@@ -10,6 +10,7 @@ from app.models.subscription import Subscription
 from app.services import deposit as dep_svc
 from app.services import property as prop_svc
 from app.services import subscription as sub_svc
+from app.services.analytics import _subscription_cost_for_month
 
 
 # ─── Deposit service ───────────────────────────────────────────────────────────
@@ -241,3 +242,50 @@ def test_total_summary_one_time_expense_adds_to_invested():
     s = prop_svc.total_summary(prop, [tx])
     assert s["total_invested"] == Decimal("5200000")
     assert s["profit"] == Decimal("800000")
+
+
+# ─── Analytics: subscription cost per month ────────────────────────────────────
+
+def _asub(**kwargs) -> Subscription:
+    defaults = dict(title="T", category=None, currency="USD", is_active=True, end_date=None)
+    defaults.update(kwargs)
+    return Subscription(**defaults)
+
+
+def test_analytics_yearly_shows_full_amount_in_payment_month():
+    # start_date May 15 → annual payment on May 15 every year
+    s = _asub(amount=Decimal("120"), billing_cycle="yearly", start_date=date(2025, 5, 15))
+    assert _subscription_cost_for_month(s, 2026, 5) == Decimal("120")
+
+
+def test_analytics_yearly_zero_in_non_payment_month():
+    s = _asub(amount=Decimal("120"), billing_cycle="yearly", start_date=date(2025, 5, 15))
+    assert _subscription_cost_for_month(s, 2026, 4) == Decimal("0")
+    assert _subscription_cost_for_month(s, 2026, 6) == Decimal("0")
+
+
+def test_analytics_quarterly_shows_full_amount_in_payment_months():
+    # start Jan 1 → payments Jan 1, Apr 1, Jul 1, Oct 1
+    s = _asub(amount=Decimal("30"), billing_cycle="quarterly", start_date=date(2026, 1, 1))
+    assert _subscription_cost_for_month(s, 2026, 1) == Decimal("30")
+    assert _subscription_cost_for_month(s, 2026, 4) == Decimal("30")
+    assert _subscription_cost_for_month(s, 2026, 2) == Decimal("0")
+
+
+def test_analytics_monthly_shows_amount_every_active_month():
+    s = _asub(amount=Decimal("15"), billing_cycle="monthly", start_date=date(2026, 1, 1))
+    for m in range(1, 13):
+        assert _subscription_cost_for_month(s, 2026, m) == Decimal("15")
+
+
+def test_analytics_yearly_respects_end_date():
+    # end_date before payment would land → 0
+    s = _asub(amount=Decimal("120"), billing_cycle="yearly",
+              start_date=date(2025, 5, 15), end_date=date(2026, 5, 1))
+    assert _subscription_cost_for_month(s, 2026, 5) == Decimal("0")
+
+
+def test_analytics_inactive_subscription_always_zero():
+    s = _asub(amount=Decimal("120"), billing_cycle="yearly",
+              start_date=date(2025, 5, 15), is_active=False)
+    assert _subscription_cost_for_month(s, 2026, 5) == Decimal("0")

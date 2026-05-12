@@ -1,6 +1,8 @@
 from datetime import date
 from decimal import Decimal
 
+from dateutil.relativedelta import relativedelta
+
 from app.models.deposit import Deposit
 from app.models.property import Property
 from app.models.property_transaction import PropertyTransaction
@@ -10,6 +12,12 @@ from app.schemas.analytics import AnalyticsResponse, MonthlyBreakdown
 from app.services import deposit as deposit_svc
 from app.services import subscription as sub_svc
 from app.services import property as prop_svc
+
+_BILLING_DELTA = {
+    "weekly":    relativedelta(weeks=1),
+    "quarterly": relativedelta(months=3),
+    "yearly":    relativedelta(years=1),
+}
 
 
 def _deposit_income_for_month(dep: Deposit, year: int, month: int) -> Decimal:
@@ -29,21 +37,34 @@ def _subscription_cost_for_month(sub: Subscription, year: int, month: int) -> De
         return Decimal("0")
 
     month_start = date(year, month, 1)
-    if month < 12:
-        month_end = date(year, month + 1, 1)
-    else:
-        month_end = date(year + 1, 1, 1)
+    month_end = date(year, month + 1, 1) if month < 12 else date(year + 1, 1, 1)
 
     if sub.start_date >= month_end:
         return Decimal("0")
     if sub.end_date and sub.end_date < month_start:
         return Decimal("0")
-    if sub.billing_cycle == "one_time":
-        if month_start <= sub.start_date < month_end:
-            return sub.amount
-        return Decimal("0")
 
-    return sub_svc.monthly_cost(sub)
+    if sub.billing_cycle == "one_time":
+        return sub.amount if month_start <= sub.start_date < month_end else Decimal("0")
+
+    if sub.billing_cycle == "monthly":
+        # Monthly: already one payment per month, show the amount directly
+        return sub.amount
+
+    # weekly / quarterly / yearly — show the full payment amount only in months
+    # where a payment actually lands (same logic as next_payment_date).
+    delta = _BILLING_DELTA[sub.billing_cycle]
+    candidate = sub.start_date
+    # Advance to first payment date that is >= month_start
+    while candidate < month_start:
+        candidate += delta
+
+    total = Decimal("0")
+    while candidate < month_end:
+        if sub.end_date is None or candidate <= sub.end_date:
+            total += sub.amount
+        candidate += delta
+    return total
 
 
 def build_analytics(
