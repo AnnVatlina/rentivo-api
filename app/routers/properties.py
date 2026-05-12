@@ -212,9 +212,17 @@ async def get_property_analytics(
     prop = await _get_property(prop_id, current_user, db)
     txs = await _load_transactions(prop_id, db)
     today = date.today()
+
+    # Use actual transaction currency (most common), fall back to prop.currency
+    tx_currencies = [tx.currency for tx in txs]
+    if tx_currencies:
+        actual_currency = max(set(tx_currencies), key=tx_currencies.count)
+    else:
+        actual_currency = prop.currency
+
     months = []
     for month in range(1, 13):
-        cf = svc.monthly_cashflow(txs, year, month, prop.currency)
+        cf = svc.monthly_cashflow(txs, year, month, actual_currency)
         months.append(PropertyAnalyticsMonth(
             month=month,
             income=round(cf["income"], 2),
@@ -225,6 +233,6 @@ async def get_property_analytics(
     return PropertyAnalyticsResponse(
         property_id=prop_id,
         year=year,
-        currency=prop.currency,
+        currency=actual_currency,
         months=months,
     )
