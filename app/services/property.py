@@ -32,13 +32,11 @@ def monthly_cashflow(
     transactions: list[PropertyTransaction],
     year: int,
     month: int,
-    currency: str,
+    currency: str,  # noqa: ARG001 — kept for signature compat, conversion is done on frontend
 ) -> dict:
     income = Decimal("0")
     expenses = Decimal("0")
     for tx in transactions:
-        if tx.currency != currency:
-            continue
         if not _tx_active_in_month(tx, year, month):
             continue
         amount = _monthly_amount(tx)

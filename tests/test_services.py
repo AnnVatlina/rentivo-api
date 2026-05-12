@@ -213,10 +213,12 @@ def test_monthly_cashflow_after_end_date():
     assert prop_svc.monthly_cashflow([tx], 2026, 4, "RUB")["income"] == Decimal("0")
 
 
-def test_monthly_cashflow_currency_filter():
+def test_monthly_cashflow_includes_all_currencies():
+    # Currency filter removed: transactions in any currency are summed;
+    # conversion to a target currency is handled on the frontend via exchange rates.
     tx = _tx(type="income", category="rent", amount=Decimal("500"),
               billing_cycle="monthly", start_date=date(2026, 1, 1), currency="USD")
-    assert prop_svc.monthly_cashflow([tx], 2026, 1, "RUB")["income"] == Decimal("0")
+    assert prop_svc.monthly_cashflow([tx], 2026, 1, "RUB")["income"] == Decimal("500")
 
 
 def test_total_summary_no_transactions():
