@@ -2,330 +2,159 @@
 
 ## What is Rentivo?
 
-Rentivo is a personal finance tracker. It helps you manage:
+Rentivo is a personal finance tracker for managing:
 
-- **Deposits** — how much interest you are earning and when a deposit closes.
-- **Subscriptions** — recurring payments: streaming, software, gym, etc.
-- **Properties** — purchases, rental income, expenses, and profit on sale.
+- **Deposits** — track accrued interest, maturity dates, simple and compound rates.
+- **Subscriptions** — recurring payments: streaming, software, gym, and everything else.
+- **Properties** — purchase cost, utility expenses, rental income, and profit on sale.
 
-The monthly analytics view shows income vs. expenses by month, with a forecast for future months.
+The Analytics page shows income vs. expenses by month with a future forecast, plus a separate per-property expense chart.
+
+Web app: **https://annvatlina.github.io/rentivo-ui/**  
+API: **https://rentivo-api-production.up.railway.app**
 
 ---
 
 ## Getting Started
 
-### Register
-
-```
-POST /auth/register
-{"email": "you@example.com", "password": "your-password"}
-```
-
-Returns `access_token` and `refresh_token`.
-
-### Login
-
-```
-POST /auth/login
-{"email": "you@example.com", "password": "your-password"}
-```
-
-### Using the token
-
-Every request (except register and login) requires:
-
-```
-Authorization: Bearer <access_token>
-```
-
-### Refreshing tokens
-
-Access tokens expire in 30 minutes. To get a new pair without re-entering your password:
-
-```
-POST /auth/refresh
-{"refresh_token": "<your-refresh-token>"}
-```
+Open the app and register with your email and password. After logging in you land on the Dashboard with summary cards.
 
 ---
 
 ## Settings
 
-Settings let you toggle modules on/off and set a default currency.
+The **Settings** page lets you:
 
-### Get settings
+- Set the **default currency** — used when creating deposits, subscriptions, and properties.
+- Toggle **modules**: Deposits, Subscriptions, Property.
+- Choose a **theme**: Indigo (purple), Neutral (greyscale), Dark.
+- Load **demo data** or delete all account data.
 
-```
-GET /settings
-```
-
-```json
-{
-  "module_deposits": true,
-  "module_subscriptions": true,
-  "module_property": false,
-  "default_currency": "USD"
-}
-```
-
-### Update settings
-
-```
-PUT /settings
-```
-
-Pass any subset of fields:
-
-```json
-{"module_property": true, "default_currency": "EUR"}
-```
-
-### Modules
-
-| Module | Field | Default |
-|---|---|---|
-| Deposits | `module_deposits` | enabled |
-| Subscriptions | `module_subscriptions` | enabled |
-| Property | `module_property` | disabled |
-
-A disabled module:
-- Returns `403` on its endpoints.
-- Returns `null` (not `0`) in analytics.
-
-### Default currency
-
-`default_currency` — ISO currency code: `USD`, `EUR`, `RUB`, `GEL`, `BYN`. Used as the pre-selected value when creating deposits, subscriptions, properties, and in analytics.
-
-### Demo data
-
-To quickly explore the app, load sample data:
-
-```
-POST /settings/demo-data
-```
-
-Creates:
-- 3 deposits (RUB simple/compound + USD)
-- 6 subscriptions (Netflix, Spotify, Yandex Plus, iCloud, gym, Adobe CC)
-- 1 property with transactions (rent income, management fee, renovation, furniture)
-
-All dates are calculated relative to today — the data always looks current.
-
-To delete all your data:
-
-```
-DELETE /settings/data
-```
-
-Deletes all deposits, subscriptions, and properties. Settings (modules, currency) are preserved.
+> The Property module is off by default — enable it in Settings to see the tab in the sidebar.
 
 ---
 
 ## Deposits
 
-### Add a deposit
+### Deposits page
 
-```
-POST /deposits
-```
+Table of all deposits: title, bank, amount, rate (with compound badge), close date, days elapsed, accrued income.
 
-**Simple interest:**
-```json
-{
-  "title": "Sberbank 2026",
-  "bank_name": "Sberbank",
-  "amount": "100000.00",
-  "currency": "RUB",
-  "open_date": "2026-01-01",
-  "close_date": "2026-12-31",
-  "annual_rate": "17.0",
-  "interest_type": "simple"
-}
-```
+**Status indicators:**
+- 🟢 Green dot — active
+- 🟡 Amber row — expiring within 30 days (badge shows days remaining)
+- Grey row — expired (Expired badge)
 
-**Compound interest:**
-```json
-{
-  "title": "Alpha Bank",
-  "amount": "100000.00",
-  "currency": "RUB",
-  "open_date": "2026-01-01",
-  "annual_rate": "15.0",
-  "interest_type": "compound",
-  "compound_frequency": "monthly"
-}
-```
+Click any column header to sort; click again to reverse direction. Pagination: 10 records per page.
 
-- `interest_type` — `simple` or `compound`. Default: `simple`.
-- `compound_frequency` — required for compound: `daily`, `monthly`, `quarterly`, `annually`.
-- `close_date` — optional; omit for open-ended deposits.
+The pencil button opens the edit form.
 
-### List deposits
+### Deposit form
 
-```
-GET /deposits
-```
+**Simple interest:** fill in title, bank, amount, currency, open date, rate, close date, and select interest type = Simple.
 
-Each deposit includes:
-- `income_to_date` — accrued interest as of today.
-- `days_elapsed` — number of active days.
+**Compound interest:** select type = Compound, then choose compounding frequency: daily, monthly, quarterly, or annually.
 
-### Update / delete
-
-```
-PUT /deposits/{id}   — partial update
-DELETE /deposits/{id}
-```
+Close date is optional — omit it for open-ended deposits.
 
 ---
 
 ## Subscriptions
 
-### Add a subscription
+### Subscriptions page
 
-```
-POST /subscriptions
-{
-  "title": "Netflix",
-  "category": "Entertainment",
-  "amount": "15.99",
-  "currency": "USD",
-  "billing_cycle": "monthly",
-  "start_date": "2026-01-01"
-}
-```
+Filter tabs: **All** / **Active** / **One-time** / **Cancelled** — each shows a count.
 
-- `billing_cycle`: `weekly`, `monthly`, `quarterly`, `yearly`, `one_time`.
-- `end_date` — optional.
-- `is_active` — default `true`.
+Columns: title, category, cycle, amount, monthly equivalent, next payment.
 
-### List subscriptions
+**Next payment badges:**
+- 🟡 Amber — payment due today or within 7 days (`today` / `Nd`)
+- 🔵 Blue — payment due this calendar month (more than 7 days away)
 
-```
-GET /subscriptions
-```
+The header shows a "N payment(s) this month" pill when applicable.
 
-Each subscription includes:
-- `next_payment_date` — calculated automatically.
-- `monthly_cost` — amount normalized to a monthly equivalent.
+The `/ mo` total in the header counts **only monthly subscriptions** — yearly, quarterly, and biennial amounts are not prorated, consistent with how Analytics shows them as full amounts in the payment month.
 
-### Cancel / delete
+### Subscription form
 
-```
-PUT /subscriptions/{id} {"is_active": false}
-DELETE /subscriptions/{id}
-```
+- **Billing cycle**: Weekly / Monthly / Quarterly / Yearly / **2 years** / One-time.
+- A monthly cost preview appears below the amount field for non-monthly cycles.
+- `end_date` is optional.
 
 ---
 
 ## Properties
 
-Enable the module first: `PUT /settings {"module_property": true}`.
+### Properties list
 
-### Add a property
+**Click a row** → opens the property's **transaction view**.  
+**Gear icon ⚙️** in the last column → opens the **edit form**.
 
-```
-POST /properties
-{
-  "name": "Flat Moscow",
-  "address": "Pushkin St, 10",
-  "purchase_date": "2020-01-01",
-  "purchase_price": "5000000.00",
-  "currency": "RUB",
-  "status": "active"
-}
-```
+### Property transactions (`/properties/:id`)
 
-When sold, include `status: "sold"`, `sale_date`, and `sale_price`.
+**Summary cards at the top:**
+- **Total invested** — purchase price + all one-time expenses.
+- **Expenses** — sum of all expense transactions, converted to the app's default currency.
+- **Income received** — sum of all income transactions, converted to the app's default currency.
+- **Profit / Status** — profit on sale, or Active badge.
 
-### Property detail
+> Conversion uses live exchange rates from open.er-api.com (24-hour cache). A loading indicator appears while rates are fetching.
 
-```
-GET /properties/{id}
-```
+**Filters:**
+- Type: All / Expenses / Income.
+- Category chips — only categories with data are shown, with counts.
+- **Reset** button clears both filters.
 
-Returns the property plus `summary`:
-- `total_invested` — purchase price + all one-time expenses.
-- `profit` — profit on sale (only for sold properties).
+**Table:**
+- Columns: type icon, category, title, amount, `{default currency}` (converted), cycle, date.
+- All columns are sortable — click the header.
+- **Footer row** (`tfoot`) — totals for **all** filtered rows (not just the current page):
+  - Amount column groups by actual transaction currency.
+  - Base currency column shows the converted total.
+- Pagination: 20 records per page, newest first by default.
 
-### Transactions
+**Adding a transaction** (Add button):
+- Form expands above the table.
+- Select type (Expense/Income), category from a dropdown, title, amount, currency, cycle, date.
+- Categories: Utilities, Maintenance, Mortgage, Tax, Rent, Other.
 
-Transactions track income (rent) and expenses (repairs, utilities) for a property.
+### Property edit form (`/properties/:id/edit`)
 
-```
-POST /properties/{id}/transactions
-```
+Fields: name, address, purchase price, currency, purchase date, status.  
+When status is **Sold**, additional fields appear: sale date, sale price, notes.  
+The Delete button (with confirmation) removes the property and all its transactions.
 
-**One-time expense:**
-```json
-{
-  "type": "expense",
-  "category": "renovation",
-  "title": "Kitchen repair",
-  "amount": "200000.00",
-  "currency": "RUB",
-  "billing_cycle": "one_time",
-  "transaction_date": "2021-06-15"
-}
-```
+### Importing transactions from a bank statement
 
-**Recurring income (rent):**
-```json
-{
-  "type": "income",
-  "category": "rent",
-  "title": "Monthly rent",
-  "amount": "50000.00",
-  "currency": "RUB",
-  "billing_cycle": "monthly",
-  "start_date": "2022-01-01"
-}
-```
-
-- For `one_time` — use `transaction_date`.
-- For recurring — use `start_date` (and optionally `end_date`).
-
-### Property analytics
-
-```
-GET /properties/{id}/analytics?year=2026
-```
-
-Returns monthly income and expenses for the property.
+If you have a bank CSV export, you can convert it for import:
+1. Create the property in the app.
+2. Copy its UUID from the address bar (`/properties/{uuid}`).
+3. Prepare a CSV in `property_transactions.csv` format (see Export/Import) with `property_id` set to that UUID.
+4. Upload via Import/Export.
 
 ---
 
 ## Analytics
 
-```
-GET /analytics?year=2026&currency=RUB
-```
+### Main chart
 
-Returns 12 rows — one per month:
+Shows deposit income (green) and subscription expenses (red) bars by month.
 
-```json
-{
-  "year": 2026,
-  "currency": "RUB",
-  "months": [
-    {
-      "month": 1,
-      "year": 2026,
-      "deposit_income": "2301.37",
-      "subscription_expenses": "1200.00",
-      "property_income": "50000.00",
-      "property_expenses": "0.00",
-      "net": "51101.37",
-      "is_projected": false
-    }
-  ]
-}
-```
+- ← year → arrows switch the year.
+- The currency dropdown selects the **display currency** — amounts are converted from native data currencies via open.er-api.com exchange rates.
+- Transparent bars = projected (future months).
+- Subscriptions with yearly / quarterly / biennial / weekly billing show the **full payment amount** in the payment month — not spread across months.
 
-- Past months — actual data (`is_projected: false`).
-- Future months — forecast (`is_projected: true`).
-- Disabled module fields return `null`.
-- Only records in the specified currency are included.
+Summary cards below the chart: Income earned / Subs spent / Net (actual) / Net (full year incl. projected).
+
+### Property chart
+
+A second card below the main chart — property income and expenses by month.
+
+- Property selector dropdown in the card header — switching instantly reloads data for that property.
+- Shares the same year stepper and currency selector as the main chart.
+- Automatically converts from the property's native currency if it differs from the selected one.
+- Mini summary row below the chart: Expenses / Income / Net for actual months only.
 
 ---
 
@@ -333,11 +162,7 @@ Returns 12 rows — one per month:
 
 ### Export
 
-```
-GET /export/csv
-```
-
-Downloads a ZIP archive with four files:
+The **Export** button on the Import/Export page downloads a ZIP archive with four CSVs:
 - `deposits.csv`
 - `subscriptions.csv`
 - `properties.csv`
@@ -347,24 +172,17 @@ Open in Excel or Google Sheets.
 
 ### Import
 
-```
-POST /import/csv
-Content-Type: multipart/form-data
-file: <zip or csv>
-```
+Drag and drop a file onto the upload zone, or click to browse. Accepts a ZIP (all four CSVs) or a single CSV file.
 
-- Accepts the full ZIP or a single CSV.
 - Rows with an already-existing `id` are skipped — safe to re-import.
 - Supports importing from another user's export (generates new UUIDs).
+- For `property_transactions.csv` — the corresponding property must already exist in your account.
 
-```json
-// Response
-{"deposits": 3, "subscriptions": 2, "properties": 1, "property_transactions": 5, "skipped": 0}
-```
+The result shows how many records were created and skipped per entity type.
 
 ---
 
-## Error Codes
+## API Error Codes
 
 | HTTP | Meaning |
 |---|---|

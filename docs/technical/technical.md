@@ -5,7 +5,7 @@
 Rentivo API is a stateless REST API built on **FastAPI** with an **async PostgreSQL** backend.
 
 ```
-Client (Web / iOS)
+Browser (GitHub Pages)
       │
       ▼
 FastAPI (uvicorn)        ← Railway service
@@ -38,14 +38,14 @@ rentivo-api/
 │   ├── schemas/
 │   │   ├── user.py
 │   │   ├── deposit.py        # InterestType, CompoundFrequency enums
-│   │   ├── subscription.py
+│   │   ├── subscription.py   # BillingCycle: weekly/monthly/quarterly/yearly/biennial/one_time
 │   │   ├── settings.py       # UserSettingsOut, UserSettingsUpdate
-│   │   ├── property.py
-│   │   ├── property_transaction.py
-│   │   └── analytics.py      # MonthlyBreakdown (nullable module fields)
+│   │   ├── property.py       # PropertyAnalyticsResponse with currency field
+│   │   ├── property_transaction.py  # TransactionType, TransactionCategory, TransactionBillingCycle
+│   │   └── analytics.py      # MonthlyBreakdown, AnalyticsResponse (deposit_currency, subscription_currency)
 │   ├── routers/
 │   │   ├── auth.py           # POST /auth/register|login|refresh
-│   │   ├── settings.py       # GET/PUT /settings
+│   │   ├── settings.py       # GET/PUT /settings, POST /settings/demo-data, DELETE /settings/data
 │   │   ├── deposits.py       # CRUD /deposits
 │   │   ├── subscriptions.py  # CRUD /subscriptions
 │   │   ├── properties.py     # CRUD /properties + nested transactions + analytics
@@ -53,9 +53,9 @@ rentivo-api/
 │   │   └── export_import.py  # GET /export/csv, POST /import/csv
 │   ├── services/
 │   │   ├── deposit.py        # income_to_date() — simple + compound
-│   │   ├── subscription.py   # monthly_cost(), next_payment_date()
-│   │   ├── property.py       # monthly_cashflow(), total_summary()
-│   │   └── analytics.py      # build_analytics()
+│   │   ├── subscription.py   # monthly_cost(), next_payment_date() — incl. biennial
+│   │   ├── property.py       # monthly_cashflow() (currency-agnostic), total_summary()
+│   │   └── analytics.py      # build_analytics() — currency-agnostic, returns native currencies
 │   └── auth/
 │       ├── jwt.py            # Token creation/validation, bcrypt password hashing
 │       └── dependencies.py   # get_current_user, require_module() factory
@@ -66,7 +66,8 @@ rentivo-api/
 │       ├── 0003_add_user_settings.py
 │       ├── 0004_add_properties_and_transactions.py
 │       ├── 0005_add_property_source_id.py
-│       └── 0006_add_default_currency_to_settings.py
+│       ├── 0006_add_default_currency_to_settings.py
+│       └── 0007_rename_transaction_date.py   # conditional — safe on fresh DBs
 ├── tests/
 │   ├── conftest.py
 │   ├── test_auth.py
@@ -80,11 +81,11 @@ rentivo-api/
 ├── docs/
 │   ├── technical/
 │   │   ├── technical.md      # this file
-│   │   └── technical-ui.md   # web UI spec
+│   │   └── technical-ui.md   # web UI technical spec
 │   └── user/
 │       ├── guide_ru.md
 │       └── guide_en.md
-├── docker-compose.yml
+├── docker-compose.yml        # db + api (--reload) + ui services
 ├── Dockerfile
 ├── railway.toml
 ├── alembic.ini
@@ -101,21 +102,22 @@ git clone https://github.com/AnnVatlina/rentivo-api
 cd rentivo-api
 cp .env.example .env
 
-docker compose up --build
-# Migrations run automatically on startup (railway.toml startCommand)
+docker-compose up --build
+# Migrations run automatically on startup
 # API → http://localhost:8000
 # Docs → http://localhost:8000/docs
+# UI  → http://localhost:5173 (served from rentivo-ui volume mount)
 ```
 
 To run tests:
 
 ```bash
 # Create test DB once
-docker compose exec db psql -U postgres -c "CREATE DATABASE rentivo_test;"
+docker-compose exec db psql -U postgres -c "CREATE DATABASE rentivo_test;"
 
-pytest
+docker-compose exec api pytest
 # or with coverage
-pytest --cov=app --cov-report=term-missing
+docker-compose exec api pytest --cov=app --cov-report=term-missing
 ```
 
 ---
@@ -183,7 +185,7 @@ Created automatically on registration. One row per user.
 | category | VARCHAR | nullable |
 | amount | NUMERIC(18,2) | NOT NULL |
 | currency | VARCHAR(3) | NOT NULL |
-| billing_cycle | VARCHAR(20) | NOT NULL — weekly/monthly/quarterly/yearly/one_time |
+| billing_cycle | VARCHAR(20) | NOT NULL — weekly/monthly/quarterly/yearly/**biennial**/one_time |
 | start_date | DATE | NOT NULL |
 | end_date | DATE | nullable |
 | is_active | BOOLEAN | NOT NULL |
@@ -213,7 +215,7 @@ Created automatically on registration. One row per user.
 | id | UUID | PK |
 | property_id | UUID | FK → properties.id CASCADE, INDEX |
 | type | VARCHAR(20) | NOT NULL — income/expense |
-| category | VARCHAR | NOT NULL |
+| category | VARCHAR(50) | NOT NULL — mortgage/utilities/tax/maintenance/rent/other |
 | title | VARCHAR | NOT NULL |
 | amount | NUMERIC(18,2) | NOT NULL |
 | currency | VARCHAR(3) | NOT NULL |
@@ -223,7 +225,7 @@ Created automatically on registration. One row per user.
 | end_date | DATE | nullable — for recurring |
 | created_at | TIMESTAMPTZ | NOT NULL, default now() |
 
-> **Note:** The date field is named `transaction_date` (not `date`) to avoid Python namespace conflict with `datetime.date` in Pydantic v2 class bodies.
+> **Note:** The date field is named `transaction_date` (not `date`) to avoid Python namespace conflict with `datetime.date` in Pydantic v2 class bodies. Migration 0007 renames the column conditionally (safe on fresh databases).
 
 ---
 
@@ -280,19 +282,36 @@ n = periods per year: daily=365, monthly=12, quarterly=4, annually=1
 | `monthly` | `amount` |
 | `quarterly` | `amount / 3` |
 | `yearly` | `amount / 12` |
+| `biennial` | `amount / 24` |
 | `one_time` | `0` |
 
 `next_payment_date`: advances `start_date` by billing delta until it reaches or passes today. Returns `None` if inactive, past `end_date`, or a past one_time.
 
+### Subscription Analytics Cost
+
+For non-monthly billing cycles (weekly, quarterly, yearly, biennial), the **full payment amount** is shown in the month when the payment actually falls — not spread across months. Monthly subscriptions show their amount every month.
+
 ### Property Cashflow
 
 `monthly_cashflow(transactions, year, month, currency)`:
+- Currency parameter is kept for signature compatibility; **all transactions are now included regardless of their currency** — conversion is done on the frontend.
 - `one_time` transactions: counted in the month their `transaction_date` falls.
 - Recurring transactions: counted in months between `start_date` and `end_date`.
 
 `total_summary(property, transactions)`:
-- `total_invested` = `purchase_price` + all one_time expense amounts.
+- `total_invested` = `purchase_price` + all one_time expense amounts (same currency as property).
 - `profit` = `sale_price − total_invested + total_income` (only if status = sold).
+
+### Property Analytics Currency
+
+`GET /properties/{id}/analytics` derives the response `currency` from the **most common currency among existing transactions**, not from `prop.currency`. This handles the common case where a property is created in one currency but transactions are imported in another.
+
+### Global Analytics Currency
+
+`GET /analytics` no longer filters deposits and subscriptions by the requested `currency`. Instead:
+- All items are summed regardless of their native currency.
+- The response includes `deposit_currency` and `subscription_currency` fields (most common currency among active items).
+- The frontend uses these fields with the open.er-api.com exchange rate API to convert values for display.
 
 ---
 
@@ -314,58 +333,18 @@ All endpoints except `/auth/*` and `/health` require `Authorization: Bearer <tok
 |---|---|---|
 | GET | /settings | Get user settings |
 | PUT | /settings | Update settings (partial) |
-
-```json
-// GET /settings response
-{
-  "id": "...",
-  "user_id": "...",
-  "module_deposits": true,
-  "module_subscriptions": true,
-  "module_property": false,
-  "default_currency": "USD",
-  "created_at": "..."
-}
-
-// PUT /settings request (all fields optional)
-{
-  "module_property": true,
-  "default_currency": "RUB"
-}
-```
+| POST | /settings/demo-data | Load demo deposits, subscriptions, property |
+| DELETE | /settings/data | Delete all user data (keeps settings) |
 
 ### Deposits
 
 | Method | Path | Description |
 |---|---|---|
-| GET | /deposits | List all deposits (with income_to_date) |
+| GET | /deposits | List all deposits (with income_to_date, days_elapsed) |
 | POST | /deposits | Create deposit |
 | GET | /deposits/{id} | Get single deposit |
 | PUT | /deposits/{id} | Partial update |
 | DELETE | /deposits/{id} | Delete (204) |
-
-```json
-// POST /deposits — simple interest
-{
-  "title": "Sberbank 2026",
-  "amount": "100000.00",
-  "currency": "RUB",
-  "open_date": "2026-01-01",
-  "annual_rate": "17.0",
-  "interest_type": "simple"
-}
-
-// POST /deposits — compound interest
-{
-  "title": "Alpha Bank",
-  "amount": "100000.00",
-  "currency": "RUB",
-  "open_date": "2026-01-01",
-  "annual_rate": "15.0",
-  "interest_type": "compound",
-  "compound_frequency": "monthly"
-}
-```
 
 ### Subscriptions
 
@@ -394,49 +373,20 @@ Requires `module_property = true` in user settings (otherwise 403).
 | DELETE | /properties/{id}/transactions/{tx_id} | Delete (204) |
 | GET | /properties/{id}/analytics?year=N | Monthly cashflow for year |
 
-```json
-// POST /properties
-{
-  "name": "Flat Moscow",
-  "purchase_date": "2020-01-01",
-  "purchase_price": "5000000.00",
-  "currency": "RUB",
-  "status": "active"
-}
-
-// POST /properties/{id}/transactions — one_time
-{
-  "type": "expense",
-  "category": "renovation",
-  "title": "Kitchen repair",
-  "amount": "200000.00",
-  "currency": "RUB",
-  "billing_cycle": "one_time",
-  "transaction_date": "2021-06-15"
-}
-
-// POST /properties/{id}/transactions — recurring
-{
-  "type": "income",
-  "category": "rent",
-  "title": "Monthly rent",
-  "amount": "50000.00",
-  "currency": "RUB",
-  "billing_cycle": "monthly",
-  "start_date": "2022-01-01"
-}
-```
+Transaction categories: `mortgage`, `utilities`, `tax`, `maintenance`, `rent`, `other`.
 
 ### Analytics
 
 #### GET /analytics?year=YYYY&currency=XXX
 
-Returns 12 months. Module-disabled fields are `null`, not `0`.
+Returns 12 months. Module-disabled fields are `null`, not `0`. All deposits and subscriptions are included regardless of their native currency; `deposit_currency` and `subscription_currency` tell the frontend what to convert from.
 
 ```json
 {
   "year": 2026,
-  "currency": "RUB",
+  "currency": "USD",
+  "deposit_currency": "GEL",
+  "subscription_currency": "USD",
   "months": [
     {
       "month": 1,
@@ -452,66 +402,87 @@ Returns 12 months. Module-disabled fields are `null`, not `0`.
 }
 ```
 
-`property_income` and `property_expenses` are `null` when `module_property = false`.
+#### GET /properties/{id}/analytics?year=YYYY
+
+```json
+{
+  "property_id": "...",
+  "year": 2026,
+  "currency": "GEL",
+  "months": [
+    {
+      "month": 1,
+      "income": "0.00",
+      "expenses": "95.55",
+      "net": "-95.55",
+      "is_projected": false
+    }
+  ]
+}
+```
 
 ### Export / Import
 
 #### GET /export/csv
 
 Downloads a ZIP with four CSVs:
-- `deposits.csv` — columns: `id, title, bank_name, amount, currency, open_date, close_date, annual_rate, created_at`
-- `subscriptions.csv` — columns: `id, title, category, amount, currency, billing_cycle, start_date, end_date, is_active, created_at`
-- `properties.csv` — columns: `id, name, address, purchase_date, purchase_price, currency, status, sale_date, sale_price, sale_notes, created_at`
-- `property_transactions.csv` — columns: `id, property_id, type, category, title, amount, currency, billing_cycle, transaction_date, start_date, end_date, created_at`
+- `deposits.csv` — `id, title, bank_name, amount, currency, open_date, close_date, annual_rate, created_at`
+- `subscriptions.csv` — `id, title, category, amount, currency, billing_cycle, start_date, end_date, is_active, created_at`
+- `properties.csv` — `id, name, address, purchase_date, purchase_price, currency, status, sale_date, sale_price, sale_notes, created_at`
+- `property_transactions.csv` — `id, property_id, type, category, title, amount, currency, billing_cycle, transaction_date, start_date, end_date, created_at`
 
 #### POST /import/csv
 
-Accepts `.zip` (all four CSVs) or a single `.csv`. Deduplication by `id` + `source_id` — safe to re-import. Cross-user import generates new UUIDs.
+Accepts `.zip` (all four CSVs) or a single `.csv`. Deduplication by `id` + `source_id` — safe to re-import. Cross-user import generates new UUIDs. Property transactions require the `property_id` to already exist for that user.
 
 ```json
 // Response 200
-{"deposits": 3, "subscriptions": 2, "properties": 1, "property_transactions": 5, "skipped": 0}
+{"deposits": 3, "subscriptions": 2, "properties": 1, "property_transactions": 81, "skipped": 0}
 ```
 
 ---
 
 ## Alembic Migrations
 
-Migrations run automatically at startup (`railway.toml` startCommand). To run manually:
+Migrations run automatically at startup. To run manually:
 
 ```bash
-alembic upgrade head
-alembic revision --autogenerate -m "describe change"
-alembic downgrade -1
+docker-compose exec api alembic upgrade head
+docker-compose exec api alembic revision --autogenerate -m "describe change"
+docker-compose exec api alembic downgrade -1
 ```
 
-Current migrations:
-- `0001` — users, deposits, subscriptions
-- `0002` — compound interest fields on deposits
-- `0003` — user_settings table
-- `0004` — properties and property_transactions tables
-- `0005` — source_id on properties
-- `0006` — default_currency on user_settings
+| Migration | Change |
+|---|---|
+| `0001` | users, deposits, subscriptions |
+| `0002` | compound interest fields on deposits |
+| `0003` | user_settings table |
+| `0004` | properties and property_transactions tables |
+| `0005` | source_id on properties |
+| `0006` | default_currency on user_settings |
+| `0007` | conditional rename of `date` → `transaction_date` on property_transactions |
+
+Migration 0007 uses a conditional `DO $$ ... IF EXISTS ... END $$` block — safe on both fresh databases (column already named correctly) and upgraded ones.
 
 ---
 
 ## Testing
 
 ```bash
-pytest
-pytest --cov=app --cov-report=term-missing
+docker-compose exec api pytest
+docker-compose exec api pytest --cov=app --cov-report=term-missing
 ```
 
-216 tests. All use real PostgreSQL (`rentivo_test`). Isolation via `TRUNCATE TABLE users RESTART IDENTITY CASCADE` before each test + per-request session factory.
+**222 tests.** All use real PostgreSQL (`rentivo_test`). Isolation via `TRUNCATE TABLE users RESTART IDENTITY CASCADE` before each test + per-request session factory.
 
-| File | Coverage |
+| File | What it covers |
 |---|---|
-| `test_auth.py` | Register, login, refresh |
-| `test_deposits.py` | CRUD, ownership isolation, compound interest |
-| `test_subscriptions.py` | CRUD, filters |
-| `test_settings.py` | Module toggles, default_currency |
+| `test_auth.py` | Register, login, refresh, token validation |
+| `test_deposits.py` | CRUD, ownership isolation, simple + compound interest |
+| `test_subscriptions.py` | CRUD, billing cycles including biennial, filters |
+| `test_settings.py` | Module toggles, default_currency, demo data |
 | `test_properties.py` | CRUD, transactions, analytics, module gate |
-| `test_analytics.py` | Module-aware nulls, currency filter |
+| `test_analytics.py` | Module-aware nulls, multi-currency handling, native currency fields |
 | `test_export_import.py` | ZIP export/import, cross-user import, deduplication |
 | `test_services.py` | Pure unit tests: income formulas, monthly cost, cashflow |
 
@@ -519,20 +490,18 @@ pytest --cov=app --cov-report=term-missing
 
 ## Deployment to Railway
 
-### Minimal required variables (rentivo-api service)
+### Required variables (rentivo-api service)
 
 ```
 DATABASE_URL = ${{Postgres.DATABASE_URL}}
 SECRET_KEY   = <openssl rand -hex 32>
 ```
 
-All other variables have code defaults (ALGORITHM=HS256, etc.).
-
 ### How it works
 
-1. Push to `main` → GitHub Actions runs tests.
+1. Push to `main` → GitHub Actions runs all 222 tests.
 2. Tests pass → Railway auto-deploys (Wait for CI enabled).
-3. At startup: `alembic upgrade head && uvicorn ...` (see `railway.toml`).
+3. At startup: `alembic upgrade head && uvicorn app.main:app ...` (see `railway.toml`).
 
 `DATABASE_URL` from Railway Postgres uses `postgresql://` scheme. `app/config.py` normalizes it to `postgresql+asyncpg://` automatically.
 
@@ -544,24 +513,9 @@ All other variables have code defaults (ALGORITHM=HS256, etc.).
 
 ## Known Limitations
 
-- No token revocation — refresh tokens cannot be invalidated.
-- Single currency per analytics query — no FX rate conversion.
-- No pagination — list endpoints return all records.
+- No token revocation — refresh tokens cannot be invalidated server-side.
+- No pagination on list endpoints — all records returned at once (pagination is client-side in the UI).
 - No rate limiting.
 - No email verification.
-
----
-
-## Roadmap
-
-### Web UI
-
-See [technical-ui.md](technical-ui.md).
-
-### Backend
-
-- [ ] Pagination on list endpoints
-- [ ] Multi-currency analytics with FX rates
-- [ ] Refresh token revocation
-- [ ] Rate limiting
-- [ ] Email verification
+- Exchange rate conversion uses a third-party free API (open.er-api.com) on the frontend — no server-side FX conversion.
+- Multi-currency analytics: if a user has deposits in multiple different currencies, they are summed as-is (mixed totals). The `deposit_currency` field reflects the most common currency.
