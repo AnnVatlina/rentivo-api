@@ -17,4 +17,6 @@ class MonthlyBreakdown(BaseModel):
 class AnalyticsResponse(BaseModel):
     year: int
     currency: str
+    deposit_currency: str | None = None
+    subscription_currency: str | None = None
     months: list[MonthlyBreakdown]

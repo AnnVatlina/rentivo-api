@@ -82,6 +82,12 @@ def build_analytics(
     subs_on = settings is None or settings.module_subscriptions
     prop_on = settings is None or settings.module_property
 
+    # Determine native currencies (most common among items)
+    dep_currencies = [d.currency for d in deposits]
+    sub_currencies = [s.currency for s in subscriptions if s.is_active]
+    deposit_currency = max(set(dep_currencies), key=dep_currencies.count) if dep_currencies else None
+    subscription_currency = max(set(sub_currencies), key=sub_currencies.count) if sub_currencies else None
+
     months = []
     for month in range(1, 13):
         is_projected = date(year, month, 1) > today
@@ -89,14 +95,14 @@ def build_analytics(
         dep_income: Decimal | None = None
         if deposits_on:
             dep_income = round(sum(
-                (_deposit_income_for_month(d, year, month) for d in deposits if d.currency == currency),
+                (_deposit_income_for_month(d, year, month) for d in deposits),
                 Decimal("0"),
             ), 2)
 
         sub_expenses: Decimal | None = None
         if subs_on:
             sub_expenses = round(sum(
-                (_subscription_cost_for_month(s, year, month) for s in subscriptions if s.currency == currency),
+                (_subscription_cost_for_month(s, year, month) for s in subscriptions),
                 Decimal("0"),
             ), 2)
 
@@ -134,4 +140,10 @@ def build_analytics(
             is_projected=is_projected,
         ))
 
-    return AnalyticsResponse(year=year, currency=currency, months=months)
+    return AnalyticsResponse(
+        year=year,
+        currency=currency,
+        deposit_currency=deposit_currency,
+        subscription_currency=subscription_currency,
+        months=months,
+    )

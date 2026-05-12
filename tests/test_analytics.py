@@ -228,8 +228,9 @@ async def test_cancelled_subscription_cost_excluded(client: AsyncClient, auth: d
 
 # ── Currency isolation ────────────────────────────────────────────────────────
 
-async def test_currency_filter_excludes_other_currencies(client: AsyncClient, auth: dict):
-    """A USD deposit must not appear in RUB analytics."""
+async def test_deposit_currency_reported_in_response(client: AsyncClient, auth: dict):
+    """deposit_currency in the response reflects the native currency of deposits,
+    so the frontend can apply exchange-rate conversion."""
     await client.post("/deposits", json={
         "title": "USD deposit",
         "amount": "100000",
@@ -238,8 +239,10 @@ async def test_currency_filter_excludes_other_currencies(client: AsyncClient, au
         "annual_rate": "10.0",
     }, headers=auth["headers"])
 
-    months = (await client.get("/analytics?year=2020&currency=RUB", headers=auth["headers"])).json()["months"]
-    assert all(_dec(m["deposit_income"]) == 0 for m in months)
+    resp = (await client.get("/analytics?year=2020&currency=RUB", headers=auth["headers"])).json()
+    assert resp["deposit_currency"] == "USD"
+    # Amounts are now included regardless of selected currency (conversion on frontend)
+    assert any(_dec(m["deposit_income"]) > 0 for m in resp["months"])
 
 
 async def test_currency_filter_includes_matching_currency(client: AsyncClient, auth: dict):
